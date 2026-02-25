@@ -1,6 +1,8 @@
-# GreyTab
-
-> Portable web auditing suite built on ungoogled-chromium
+<div align="center">
+  <img src="extension/icons/icon128.png" alt="GreyTab Logo" width="128">
+  <h1>GreyTab</h1>
+  <p><i>Portable web auditing suite built on ungoogled-chromium</i></p>
+</div>
 
 A pentester's browser that combines an intercepting proxy, system tool execution, and real-time traffic analysis — all controlled from a Chrome side panel extension.
 
@@ -8,7 +10,7 @@ A pentester's browser that combines an intercepting proxy, system tool execution
 
 To use GreyTab, you need to download the appropriate browser binaries and extract them to the project directory.
 
-- **Linux:** [https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable/](https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable/)]
+- **Linux:** [https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable/](https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable/)
 
 Extract the downloaded archive so that the `ungoogled-chromium` folder sits in the root of the project.
 
@@ -103,3 +105,26 @@ browser/
 - Python 3.10+
 - ungoogled-chromium (download via links above)
 - System pentesting tools (ffuf, sqlmap, nuclei, etc.) installed and in PATH
+
+## AI Agent Integration
+
+GreyTab allows you to connect an external AI Agent to automatically analyze HTTP traffic, detect vulnerabilities, and suggest potential attack vectors.
+
+1. Open the GreyTab extension side panel in your browser.
+2. Navigate to the **AutoScanner** tab.
+3. Expand the **AI Agent Integration** section.
+4. Select your preferred AI provider (e.g., OpenAI, Anthropic, Custom Proxy).
+5. Enter your API Key and the exact Model ID you wish to use.
+6. (Optional) Customize the System Prompt to guide the AI's analysis behavior.
+7. Save the settings. The engine will now query the AI for complex vulnerability assessments during scans.
+
+## Custom Tools
+
+You can extend GreyTab by adding your own scripts or system tools to the runner.
+
+### Modifying Built-in Tools
+Tools are managed by the `core/tools.py` runner. If you install a new system tool (e.g., a Go-based scanner) and want to integrate its output into the UI:
+1. Ensure the binary is in your system's `PATH`.
+2. Access the **Options** tab in the GreyTab side panel.
+3. Add your tool, define the target, and pass any necessary arguments (like `-u` or `-w`).
+4. The output will be intercepted and displayed in real-time in the browser.
