@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GreyTab Panel</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <link rel="stylesheet" href="sidepanel_syntax.css">
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header__brand">
+      <svg class="icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <span class="header__title">GreyTab</span>
+    </div>
+    <div class="header__status">
+      <span id="ws-indicator" class="status-dot status-dot--disconnected" title="Backend connection"></span>
+      <span id="proxy-indicator" class="status-dot status-dot--disconnected" title="Proxy status"></span>
+      <span id="mem-usage" class="header-mem" title="Backend RAM usage">RAM: --</span>
+      <button class="btn-icon" id="btn-external" title="Open in New Window">
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- LANDING PAGE -->
+  <div id="landing-page" class="landing-page">
+    <div class="landing-card">
+      <h2>Start Operation</h2>
+      <p class="text-muted">Create a new session or load an existing project.</p>
+
+      <div class="form-group">
+        <label class="form-label">Session Name</label>
+        <input type="text" id="session-name" class="input" placeholder="e.g., Target_Alpha" autofocus />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Scope (Keywords)</label>
+        <input type="text" id="session-scope" class="input" placeholder="example.com, api" />
+      </div>
+
+      <button class="btn btn--primary btn--block" id="btn-create-session"
+        style="width:100%; justify-content:center; margin-top:1rem;">
+        Initialize Session
+      </button>
+
+      <div class="landing-divider">
+        <span>or</span>
+      </div>
+
+      <div class="landing-project-actions">
+        <button class="btn btn--ghost btn--block" id="btn-load-project" style="width:100%; justify-content:center;">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Load Project (.pbx)
+        </button>
+        <input type="file" id="file-load-project" accept=".pbx,.json" style="display:none;" />
+
+        <button class="btn btn--ghost btn--block" id="btn-load-session" style="width:100%; justify-content:center;">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          Resume Previous Session
+        </button>
+      </div>
+
+      <!-- Session list for resuming -->
+      <div id="session-list-container" style="display:none; margin-top:1rem;">
+        <div id="session-list" class="session-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="app-container" class="app-container" style="display:none;">
+
+    <!-- Active Session Bar -->
+    <div class="session-bar" id="session-active">
+      <span class="session-bar__label">Active:</span>
+      <span class="session-bar__name" id="active-session-name">&mdash;</span>
+      <div class="session-bar__stats">
+        <span class="stat" id="stat-requests" title="Requests">REQ: 0</span>
+        <span class="stat" id="stat-tools" title="Tool runs">TOOLS: 0</span>
+        <span class="stat" id="stat-findings" title="Findings">FIND: 0</span>
+      </div>
+      <div class="session-bar__actions">
+        <button class="btn btn--ghost btn--xs" id="btn-save-project" title="Save Project">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Save
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab tab--active" data-tab="proxy">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z">
+          </path>
+        </svg>
+        <span class="tab__label">Proxy</span>
+      </button>
+      <button class="tab" data-tab="repeater">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <polyline points="17 1 21 5 17 9"></polyline>
+          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+          <polyline points="7 23 3 19 7 15"></polyline>
+          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        </svg>
+        <span class="tab__label">Repeater</span>
+      </button>
+      <button class="tab" data-tab="intruder">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span class="tab__label">Intruder</span>
+      </button>
+      <button class="tab" data-tab="tools">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span class="tab__label">Tools</span>
+      </button>
+      <button class="tab" data-tab="decoder">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span class="tab__label">Decoder</span>
+      </button>
+      <button class="tab" data-tab="requests">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        <span class="tab__label">History</span>
+      </button>
+      <button class="tab" data-tab="autoscanner">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span class="tab__label">AutoScanner</span>
+      </button>
+      <button class="tab" data-tab="settings">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
+        </svg>
+        <span class="tab__label">Settings</span>
+      </button>
+    </nav>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- PROXY TAB                                 -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content tab-content--active" id="tab-proxy">
+      <!-- Intercept Toggle Bar -->
+      <div class="intercept-bar" id="intercept-bar">
+        <div class="intercept-bar__left">
+          <span class="intercept-bar__dot" id="intercept-dot"></span>
+          <span class="intercept-bar__text" id="intercept-text">Intercept OFF</span>
+        </div>
+        <label class="intercept-switch">
+          <input type="checkbox" id="proxy-intercept" />
+          <span class="intercept-switch__track"></span>
+        </label>
+      </div>
+
+      <div class="section proxy-control-section">
+        <div class="proxy-info-grid">
+          <div class="proxy-info-card">
+            <span class="proxy-info-card__label">Status</span>
+            <span class="proxy-info-card__value" id="proxy-status">Disconnected</span>
+          </div>
+          <div class="proxy-info-card">
+            <span class="proxy-info-card__label">Port</span>
+            <span class="proxy-info-card__value" id="proxy-port">8080</span>
+          </div>
+          <div class="proxy-info-card">
+            <span class="proxy-info-card__label">Logging</span>
+            <label class="toggle toggle--sm">
+              <input type="checkbox" id="proxy-logging" checked />
+              <span class="toggle__slider"></span>
+            </label>
+          </div>
+          <div class="proxy-info-card">
+            <span class="proxy-info-card__label">Intercept Resp.</span>
+            <label class="toggle toggle--sm">
+              <input type="checkbox" id="proxy-intercept-response" />
+              <span class="toggle__slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interception Editor — Raw View -->
+      <div class="section intercept-editor" id="intercept-editor" style="display:none;">
+        <div class="intercept-editor__header">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>Request Intercepted</span>
+          <span class="intercept-meta" id="request-intercept-meta"></span>
+        </div>
+        <div class="intercept-queue" id="request-intercept-queue"></div>
+        <textarea id="editor-raw" class="input input--textarea input--code raw-editor" rows="14"
+          placeholder="Raw HTTP request will appear here..."></textarea>
+        <div class="form-actions">
+          <button class="btn btn--primary" id="btn-forward">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+            Forward
+          </button>
+          <button class="btn btn--danger" id="btn-drop">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            Drop
+          </button>
+        </div>
+      </div>
+
+
+
+      <!-- Response Interception Editor -->
+      <div class="section intercept-editor intercept-editor--response" id="response-intercept-editor"
+        style="display:none;">
+        <div class="intercept-editor__header intercept-editor__header--response">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Response Intercepted</span>
+          <span class="intercept-meta" id="response-intercept-meta"></span>
+        </div>
+        <div class="intercept-queue" id="response-intercept-queue"></div>
+        <textarea id="editor-response-raw" class="input input--textarea input--code raw-editor" rows="14"
+          placeholder="Raw HTTP response will appear here..."></textarea>
+        <div class="form-actions">
+          <button class="btn btn--primary" id="btn-forward-response">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+            Forward Response
+          </button>
+          <button class="btn btn--danger" id="btn-drop-response">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            Drop Response
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- REPEATER TAB                              -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-repeater">
+      <div class="repeater-workspace">
+        <div class="repeater-tabbar" id="repeater-tabbar"></div>
+        <div class="repeater-tab-actions">
+          <button class="btn btn--ghost btn--xs" id="btn-repeater-new-tab">+ Tab</button>
+          <button class="btn btn--ghost btn--xs" id="btn-repeater-clone-tab">Clone</button>
+          <button class="btn btn--ghost btn--xs" id="btn-repeater-close-tab">Close</button>
+        </div>
+      </div>
+      <div class="repeater-grid">
+        <!-- Request Editor — Raw -->
+        <div class="repeater-column">
+          <div class="section__header">
+            <h3>Request</h3>
+            <div class="repeater-controls">
+              <label class="toggle toggle--sm" title="Follow HTTP redirects (3xx)">
+                <input type="checkbox" id="repeater-follow-redirect" />
+                <span class="toggle__slider"></span>
+              </label>
+              <span class="toggle-label" id="repeater-redirect-label">Follow Redirects</span>
+              <button class="btn btn--primary btn--sm" id="btn-repeater-send">Send</button>
+            </div>
+          </div>
+          <div class="syntax-editor" id="repeater-syntax-editor">
+            <pre class="syntax-editor__highlight" id="repeater-req-highlight" aria-hidden="true"></pre>
+            <textarea id="repeater-raw-request" class="syntax-editor__textarea"
+              placeholder="GET / HTTP/1.1&#10;Host: example.com&#10;User-Agent: GreyTab/1.0&#10;&#10;"
+              spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <!-- Resizable Splitter -->
+        <div class="panel-splitter panel-splitter--vertical" id="repeater-splitter"></div>
+
+        <!-- Response Viewer — Raw + Render -->
+        <div class="repeater-column">
+          <div class="section__header">
+            <h3>Response</h3>
+            <span class="status-badge" id="repeater-status">---</span>
+            <span class="time-badge" id="repeater-time">0ms</span>
+          </div>
+          <div class="editor-tabs">
+            <button class="detail-tab detail-tab--active" data-repeater-res="raw">Raw</button>
+            <button class="detail-tab" data-repeater-res="render">Render</button>
+          </div>
+          <div class="editor-content-flex">
+            <pre id="repeater-res-raw" class="code-block"></pre>
+            <iframe id="repeater-res-render" class="render-frame" style="display:none;"></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- INTRUDER TAB                              -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-intruder">
+      <div class="intruder-layout">
+        <!-- Positions Panel -->
+        <div class="intruder-section">
+          <div class="section__header">
+            <h3>Positions</h3>
+            <div class="intruder-controls">
+              <select id="intruder-attack-type" class="input input--sm">
+                <option value="sniper">Sniper</option>
+                <option value="battering_ram">Battering Ram</option>
+                <option value="pitchfork">Pitchfork</option>
+                <option value="cluster_bomb">Cluster Bomb</option>
+              </select>
+            </div>
+          </div>
+          <div class="intruder-target-row">
+            <label class="form-label">Target</label>
+            <input type="text" id="intruder-target" class="input input--sm" placeholder="https://target.com/login" />
+          </div>
+          <div class="intruder-mark-controls">
+            <button class="btn btn--ghost btn--xs" id="btn-intruder-mark">Mark Selection</button>
+            <button class="btn btn--ghost btn--xs" id="btn-intruder-clear">Clear All</button>
+            <button class="btn btn--ghost btn--xs" id="btn-intruder-auto">Auto</button>
+          </div>
+          <textarea id="intruder-raw-request" class="input input--textarea input--code raw-editor intruder-editor"
+            rows="10"
+            placeholder="POST /login HTTP/1.1&#10;Host: target.com&#10;Content-Type: application/x-www-form-urlencoded&#10;&#10;username=§admin§&password=§password§"></textarea>
+          <div class="intruder-positions-info">
+            <span id="intruder-position-count">Positions: 0</span>
+          </div>
+        </div>
+
+        <!-- Payloads Panel -->
+        <div class="intruder-section">
+          <div class="section__header">
+            <h3>Payloads</h3>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payload Set</label>
+            <select id="intruder-payload-set" class="input input--sm">
+              <option value="1">Set 1</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Payload Type</label>
+            <select id="intruder-payload-type" class="input input--sm">
+              <option value="simple_list">Simple List</option>
+              <option value="numbers">Numbers</option>
+              <option value="wordlist">Wordlist File</option>
+            </select>
+          </div>
+
+          <!-- Simple List Input -->
+          <div class="form-group" id="intruder-payload-list-group">
+            <label class="form-label">Payloads (one per line)</label>
+            <textarea id="intruder-payloads" class="input input--textarea input--code" rows="8"
+              placeholder="admin&#10;root&#10;test&#10;' OR 1=1 --&#10;admin' --"></textarea>
+          </div>
+
+          <!-- Numbers Config -->
+          <div id="intruder-payload-numbers-group" style="display:none;">
+            <div class="form-group-row">
+              <div class="form-group">
+                <label class="form-label">From</label>
+                <input type="number" id="intruder-num-from" class="input input--sm" value="0" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">To</label>
+                <input type="number" id="intruder-num-to" class="input input--sm" value="100" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Step</label>
+                <input type="number" id="intruder-num-step" class="input input--sm" value="1" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Wordlist File -->
+          <div id="intruder-payload-wordlist-group" style="display:none;">
+            <div class="form-group">
+              <label class="form-label">System Wordlist Path</label>
+              <div class="settings-inline">
+                <input type="text" id="intruder-wordlist-path" class="input input--sm" style="flex:1;"
+                  placeholder="/usr/share/wordlists/rockyou.txt" />
+                <button class="btn btn--primary btn--sm" id="btn-load-wordlist">Load</button>
+                <button class="btn btn--ghost btn--sm" id="btn-browse-intruder-wordlist">Browse</button>
+              </div>
+              <input type="file" id="intruder-file-input" accept=".txt,.lst,.list,.csv,.wordlist"
+                style="display:none;" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Or select bundled wordlist</label>
+              <select id="intruder-wordlist" class="input input--sm">
+                <option value="">Select wordlist...</option>
+              </select>
+            </div>
+            <span class="settings-hint" id="wordlist-load-status"></span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Threads</label>
+            <input type="number" id="intruder-threads" class="input input--sm" value="5" min="1" max="50" />
+          </div>
+        </div>
+
+        <!-- Attack Controls -->
+        <div class="intruder-section intruder-attack-bar">
+          <button class="btn btn--primary" id="btn-intruder-start">Start Attack</button>
+          <button class="btn btn--danger" id="btn-intruder-stop" style="display:none;">Stop</button>
+          <span id="intruder-progress" class="intruder-progress"></span>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="intruder-section intruder-results-section">
+          <div class="section__header">
+            <h3>Results</h3>
+            <span class="badge" id="intruder-result-count">0</span>
+          </div>
+          <div class="intruder-results-header">
+            <span class="col-num">#</span>
+            <span class="col-payload">Payload</span>
+            <span class="col-status">Status</span>
+            <span class="col-length">Length</span>
+            <span class="col-time">Time</span>
+          </div>
+          <div class="intruder-results" id="intruder-results">
+            <div class="empty-state">
+              <span class="empty-state__text">No results yet. Configure positions and payloads, then start the
+                attack.</span>
+            </div>
+          </div>
+
+          <!-- Result Detail Panel -->
+          <!-- Result Detail Panel removed (using modal now) -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- TOOLS TAB                                 -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-tools">
+      <div class="section">
+        <div class="section__header">
+          <h3>Run Tool</h3>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn--ghost btn--sm" id="btn-tool-help" title="Help">?</button>
+            <button class="btn btn--ghost btn--sm" id="btn-use-current-url" title="Use current page URL">
+              Current URL
+            </button>
+          </div>
+        </div>
+
+        <!-- Tool Help Modal (hidden by default) -->
+        <div id="tool-help-modal" class="modal-overlay" style="display:none;">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3>Custom Tools Guide</h3>
+              <button class="btn btn--ghost btn--sm" id="btn-close-tool-help">✕</button>
+            </div>
+            <div class="modal-body">
+              <h4>How To Add A Tool (Step By Step)</h4>
+              <ol style="padding-left:1.2rem; margin:0.5rem 0;">
+                <li>Go to <b>Settings</b> → <b>Custom Tools</b> → <b>+ Add Tool</b>.</li>
+                <li>Set a short <b>Name</b> (example: <code>my-nuclei</code>).</li>
+                <li>Set <b>Command</b> to the executable (example: <code>nuclei</code>).</li>
+                <li>Set <b>Arguments Template</b> with placeholders (example below).</li>
+                <li>Save, then open <b>Tools</b> tab and run it with a target URL.</li>
+              </ol>
+              <h4>Available Placeholders</h4>
+              <ul style="padding-left:1.2rem; margin:0.5rem 0;">
+                <li><code>{target}</code>: full target URL from Tools tab.</li>
+                <li><code>{domain}</code>: domain extracted from target.</li>
+                <li><code>{output}</code>: auto-generated output filename.</li>
+                <li><code>{wordlist}</code>: selected wordlist path.</li>
+                <li><code>{extra_args}</code>: free text from Extra Arguments field.</li>
+              </ul>
+              <h4>Safe Examples</h4>
+              <p class="text-muted" style="margin:0.4rem 0;">Nuclei:</p>
+              <code>nuclei -u {target} -o {output} {extra_args}</code>
+              <p class="text-muted" style="margin:0.6rem 0 0.3rem;">Nmap:</p>
+              <code>nmap -sV -Pn {domain} -oN {output} {extra_args}</code>
+              <p class="text-muted" style="margin-top:0.7rem;">Tip: first run with no <code>{extra_args}</code>, then
+                add flags progressively.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Smart Context (auto-populated when sending from History) -->
+        <div id="tool-smart-context" class="smart-context" style="display:none;"></div>
+
+        <div class="tool-form">
+          <div class="form-group">
+            <label class="form-label">Tool</label>
+            <select id="tool-select" class="input">
+              <option value="">Select a tool...</option>
+            </select>
+            <div class="tool-description" id="tool-description"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Target URL</label>
+            <input type="text" id="tool-target" class="input" placeholder="https://target.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Wordlist</label>
+            <select id="tool-wordlist" class="input">
+              <option value="">Default / None</option>
+            </select>
+            <div class="settings-inline" style="margin-top: 0.35rem;">
+              <input type="text" id="tool-wordlist-path" class="input input--sm" style="flex:1;"
+                placeholder="Or enter path: /usr/share/wordlists/rockyou.txt" />
+              <button class="btn btn--ghost btn--sm" id="btn-use-wordlist-path">Use Path</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Extra Arguments</label>
+            <input type="text" id="tool-extra-args" class="input input--code" placeholder="--threads 50" />
+          </div>
+
+          <details class="advanced-toggle">
+            <summary>Advanced: Raw Command</summary>
+            <div class="form-group">
+              <textarea id="tool-raw-command" class="input input--textarea input--code"
+                placeholder="Full command override..." rows="3"></textarea>
+            </div>
+          </details>
+
+          <div class="form-actions">
+            <button class="btn btn--primary" id="btn-run-tool">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              Execute
+            </button>
+            <button class="btn btn--danger btn--sm" id="btn-cancel-all" style="display:none;">Cancel All</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="section__header">
+          <h3>Output</h3>
+        </div>
+        <div class="tool-output-container">
+          <div class="tool-output-header" id="tool-output-header" style="display:none;">
+            <span id="tool-output-name" class="tool-output-name"></span>
+            <span id="tool-output-status" class="tool-output-status"></span>
+            <button class="btn btn--ghost btn--sm" id="btn-cancel-current" title="Cancel">Cancel</button>
+          </div>
+          <pre class="tool-output" id="tool-output">No tool output yet.</pre>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section__header">
+          <h3>Running</h3>
+          <span class="badge" id="running-count">0</span>
+        </div>
+        <div class="running-tools" id="running-tools">
+          <div class="empty-state">
+            <span class="empty-state__text">No tools running</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- DECODER TAB                               -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-decoder">
+      <div class="decoder-layout">
+        <!-- Input / Output -->
+        <div class="decoder-io">
+          <div class="decoder-panel">
+            <div class="section__header">
+              <h3>Input</h3>
+              <div style="display:flex; gap:0.3rem;">
+                <button class="btn btn--ghost btn--xs" id="btn-decoder-paste">Paste</button>
+                <button class="btn btn--ghost btn--xs" id="btn-decoder-clear">Clear</button>
+              </div>
+            </div>
+            <textarea id="decoder-input" class="input input--textarea input--code decoder-textarea"
+              placeholder="Paste or type text to encode/decode..." spellcheck="false"></textarea>
+          </div>
+
+          <div class="decoder-controls">
+            <select id="decoder-operation" class="input input--sm">
+              <optgroup label="Encoding">
+                <option value="base64">Base64</option>
+                <option value="base64url">Base64URL</option>
+                <option value="url">URL Encode</option>
+                <option value="url-full">URL Encode (All Chars)</option>
+                <option value="hex">Hex</option>
+                <option value="html">HTML Entities</option>
+                <option value="unicode">Unicode Escape (\uXXXX)</option>
+                <option value="ascii-hex">ASCII Hex (\xNN)</option>
+              </optgroup>
+              <optgroup label="Hashing">
+                <option value="md5">MD5</option>
+                <option value="sha1">SHA-1</option>
+                <option value="sha256">SHA-256</option>
+                <option value="sha512">SHA-512</option>
+              </optgroup>
+              <optgroup label="Other">
+                <option value="length">String Length</option>
+                <option value="reverse">Reverse</option>
+                <option value="lower">Lowercase</option>
+                <option value="upper">Uppercase</option>
+              </optgroup>
+            </select>
+            <div class="decoder-direction">
+              <button class="btn btn--primary btn--sm decoder-dir-btn decoder-dir-btn--active" data-dir="encode"
+                id="btn-dir-encode">Encode</button>
+              <button class="btn btn--ghost btn--sm decoder-dir-btn" data-dir="decode"
+                id="btn-dir-decode">Decode</button>
+            </div>
+            <button class="btn btn--primary btn--sm" id="btn-decoder-apply">Apply ▶</button>
+            <button class="btn btn--ghost btn--xs" id="btn-decoder-detect" title="Auto-detect encoding">🔍
+              Detect</button>
+            <button class="btn btn--ghost btn--xs" id="btn-decoder-swap" title="Swap input ↔ output">⇅ Swap</button>
+          </div>
+
+          <div class="decoder-panel">
+            <div class="section__header">
+              <h3>Output</h3>
+              <div style="display:flex; gap:0.3rem;">
+                <button class="btn btn--ghost btn--xs" id="btn-decoder-copy">Copy</button>
+                <button class="btn btn--ghost btn--xs" id="btn-decoder-to-input">→ Input</button>
+              </div>
+            </div>
+            <textarea id="decoder-output" class="input input--textarea input--code decoder-textarea" readonly
+              placeholder="Result will appear here..."></textarea>
+          </div>
+        </div>
+
+        <!-- JWT Inspector -->
+        <div class="decoder-jwt-section" id="decoder-jwt-section">
+          <div class="section__header">
+            <h3>JWT Inspector</h3>
+          </div>
+          <div class="jwt-grid">
+            <!-- Left Column: Encoded -->
+            <div class="jwt-encoded-col">
+              <label class="form-label jwt-label">Encoded <small>(Paste a JWT here)</small></label>
+              <textarea id="jwt-encoded-input" class="input input--textarea input--code jwt-textarea" spellcheck="false"
+                placeholder="eyJhbG..."></textarea>
+            </div>
+
+            <!-- Right Column: Decoded -->
+            <div class="jwt-decoded-col">
+              <div class="jwt-part">
+                <label class="form-label jwt-label jwt-label--header">Header <small>(Algorithm & Token
+                    Type)</small></label>
+                <textarea id="jwt-header" class="input input--textarea input--code jwt-textarea" rows="4"
+                  spellcheck="false" placeholder='{"alg":"HS256","typ":"JWT"}'></textarea>
+              </div>
+              <div class="jwt-part">
+                <label class="form-label jwt-label jwt-label--payload">Payload <small>(Data)</small></label>
+                <textarea id="jwt-payload" class="input input--textarea input--code jwt-textarea" rows="8"
+                  spellcheck="false" placeholder='{"sub":"1234567890","name":"John Doe","iat":1516239022}'></textarea>
+              </div>
+              <div class="jwt-part">
+                <label class="form-label jwt-label jwt-label--signature">Verify Signature</label>
+                <div class="jwt-signature-row">
+                  <input type="text" id="jwt-secret" class="input input--sm" placeholder="your-256-bit-secret" />
+                  <code id="jwt-signature" class="jwt-sig-display">—</code>
+                </div>
+                <span class="settings-hint" id="jwt-status" style="margin-top:0.3rem; display:block;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Operation Chain log -->
+        <div class="decoder-chain" id="decoder-chain">
+          <span class="text-muted" style="font-size:0.75rem;">Chain: </span>
+          <span id="decoder-chain-log" class="decoder-chain-log">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- HISTORY TAB                               -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-requests">
+      <div class="history-grid-container">
+        <!-- List Pane -->
+        <div class="history-list-pane">
+          <div class="section__header" style="padding: 0.5rem 0.75rem;">
+            <h3>History <span class="badge badge--findings" id="findings-badge" title="Passive findings"
+                style="display:none; cursor:pointer;">0</span>
+              <label class="toggle-inline" title="Enable/disable passive scanning">
+                <input type="checkbox" id="passive-scan-enabled" checked />
+                <span class="toggle-inline__label">Passive</span>
+              </label>
+            </h3>
+
+            <div class="traffic-filters">
+              <input type="text" id="history-search" class="input input--sm" placeholder="Search URL, body, headers..."
+                style="width:160px;" />
+              <input type="text" id="history-filter-host" class="input input--sm" placeholder="Host..."
+                style="width:90px;" />
+              <select id="history-filter-method" class="input input--sm">
+                <option value="">Method</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+              </select>
+              <select id="history-filter-status" class="input input--sm">
+                <option value="">Status</option>
+                <option value="2xx">2xx</option>
+                <option value="3xx">3xx</option>
+                <option value="4xx">4xx</option>
+                <option value="5xx">5xx</option>
+              </select>
+              <button class="btn btn--ghost btn--sm" id="btn-refresh-history" title="Refresh">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+              </button>
+              <button class="btn btn--ghost btn--sm" id="btn-clear-history" title="Clear History">Clear</button>
+            </div>
+          </div>
+          <div class="request-list" id="request-list">
+            <div class="empty-state">
+              <span class="empty-state__text">No requests logged yet.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Findings Popup (centered internal popup) -->
+        <div class="findings-backdrop" id="history-findings-panel" style="display:none;">
+          <div class="findings-popup">
+            <div class="findings-popup__header">
+              <h3>Passive Findings</h3>
+              <button class="btn btn--ghost btn--icon" id="btn-close-findings-modal">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="findings-list" id="history-findings-list">
+              <div class="empty-state">
+                <span class="empty-state__text">No findings detected yet.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail Pane -->
+        <div class="history-detail-pane" id="request-detail" style="display:none;">
+          <div class="section__header" style="padding: 0.5rem 1rem;">
+            <h3>Detail</h3>
+            <div class="detail-actions">
+              <button class="btn btn--ghost btn--sm" id="btn-close-detail">Close</button>
+            </div>
+          </div>
+
+          <div class="pad-sm">
+            <div class="detail-tabs">
+              <button class="detail-tab detail-tab--active" data-detail="request">Request</button>
+              <button class="detail-tab" data-detail="response">Response</button>
+            </div>
+            <div class="detail-actions-row">
+              <button class="btn btn--ghost btn--xs" id="btn-send-to-repeater">To Repeater</button>
+              <button class="btn btn--ghost btn--xs" id="btn-send-to-intruder">To Intruder</button>
+              <button class="btn btn--ghost btn--xs" id="btn-send-to-tool">To Tool</button>
+              <button class="btn btn--ghost btn--xs" id="btn-add-finding">Add Finding</button>
+            </div>
+          </div>
+
+          <div class="detail-content-flex" id="detail-content">
+            <pre id="detail-request" class="code-block"></pre>
+            <pre id="detail-response" class="code-block" style="display:none;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════ -->
+    <!-- SCANNER TAB (was Findings)               -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-autoscanner">
+      <!-- Scanner Controls -->
+      <div class="section" style="flex-shrink: 0; padding-bottom: 0;">
+        <div class="section__header" style="margin-bottom: 0.5rem;">
+          <h3>AutoScanner</h3>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn--ghost btn--sm" id="btn-scanner-detach"
+              title="Open scanner in dedicated window">Detach</button>
+            <button class="btn btn--primary btn--sm" id="btn-scanner-start">Start Scan</button>
+            <button class="btn btn--danger btn--sm" id="btn-scanner-stop" style="display:none;">Stop</button>
+          </div>
+        </div>
+
+        <details class="collapsible-section" id="scanner-config-details" open>
+          <summary class="collapsible-section__toggle">
+            <h3>Scanner Configuration</h3>
+            <span class="collapsible-section__arrow">&#9660;</span>
+          </summary>
+          <div style="margin-top: 0.5rem; padding-bottom: 0.75rem;">
+            <div class="form-group">
+              <label class="form-label">Target URL</label>
+              <input type="text" id="scanner-target" class="input" placeholder="https://target.com" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Scan Depth: <span id="scanner-depth-val">3</span></label>
+              <input type="range" id="scanner-depth" class="input-range" min="1" max="5" value="3" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Test Types</label>
+              <div class="scanner-checks">
+                <label class="scanner-check"><input type="checkbox" value="xss" checked /> XSS</label>
+                <label class="scanner-check"><input type="checkbox" value="sqli" checked /> SQLi</label>
+                <label class="scanner-check"><input type="checkbox" value="path_traversal" checked /> Path
+                  Traversal</label>
+                <label class="scanner-check"><input type="checkbox" value="lfi" checked /> LFI</label>
+                <label class="scanner-check"><input type="checkbox" value="open_redirect" checked /> Open
+                  Redirect</label>
+                <label class="scanner-check"><input type="checkbox" value="oast" /> OAST (Blind)</label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Advanced</label>
+              <div class="scanner-checks">
+                <label class="scanner-check" title="Inject browser cookies for this target URL"><input type="checkbox"
+                    id="scanner-auth" /> Authenticated</label>
+                <label class="scanner-check" title="Brute-force common directories"><input type="checkbox"
+                    id="scanner-fuzz-dirs" /> Dir Fuzzing</label>
+                <label class="scanner-check" title="Enable URL discovery by link extraction"><input type="checkbox"
+                    id="scanner-crawl-enabled" checked /> Active Crawling</label>
+                <label class="scanner-check" title="Analyze captured browser traffic passively"><input type="checkbox"
+                    id="scanner-passive" /> Passive Analysis</label>
+                <label class="scanner-check" title="Require headless browser execution for XSS confirmation"><input
+                    type="checkbox" id="scanner-xss-headless" checked /> XSS Headless Confirm</label>
+              </div>
+              <div class="form-group" style="margin-top:0.45rem;">
+                <label class="form-label">OAST Callback Base URL (optional)</label>
+                <input type="text" id="scanner-oast-base" class="input input--sm"
+                  placeholder="https://your-listener.tld/oast/hit/{token}" />
+                <span class="settings-hint">Used only when OAST is enabled. `{token}` is replaced automatically.</span>
+              </div>
+              <span class="settings-hint" id="scanner-auth-status">Authenticated OFF. Scanner sends requests without
+                browser
+                session cookies.</span>
+            </div>
+
+            <!-- Progress -->
+            <div class="scanner-progress" id="scanner-progress" style="display:none;">
+              <div class="scanner-progress__bar">
+                <div class="scanner-progress__fill" id="scanner-progress-fill"></div>
+              </div>
+              <span class="scanner-progress__text" id="scanner-progress-text">Scanning...</span>
+            </div>
+
+            <div class="scanner-stats" id="scanner-stats" style="display:none;">
+              <div class="scanner-stat"><span>Stage</span><strong id="scanner-stage">-</strong></div>
+              <div class="scanner-stat"><span>Queue</span><strong id="scanner-queue">0</strong></div>
+              <div class="scanner-stat"><span>Requests</span><strong id="scanner-requests-count">0</strong></div>
+              <div class="scanner-stat"><span>Tests</span><strong id="scanner-tests">0/0</strong></div>
+              <div class="scanner-stat"><span>Speed</span><strong id="scanner-rate">0 r/s</strong></div>
+            </div>
+
+            <div class="scanner-activity" id="scanner-activity" style="display:none;">
+              <div class="scanner-activity__header">Live Activity</div>
+              <div class="scanner-activity__list" id="scanner-activity-list">
+                <div class="empty-state">
+                  <span class="empty-state__text">No activity yet.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Findings List -->
+      <div class="section" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="section__header">
+          <h3>Findings</h3>
+          <div style="display:flex; gap:0.35rem; align-items:center;">
+            <span class="badge" id="scanner-finding-count" title="Vulnerability findings">0</span>
+            <span class="badge" id="scanner-test-count" title="Total executed tests">0 tests</span>
+          </div>
+        </div>
+        <div class="detail-tabs">
+          <button class="detail-tab detail-tab--active" data-scanner-view="findings">Vulns</button>
+          <button class="detail-tab" data-scanner-view="tests">Tests</button>
+          <button class="detail-tab" data-scanner-view="requests">Requests</button>
+          <button class="detail-tab" data-scanner-view="tree">Crawl Tree</button>
+        </div>
+        <div class="scanner-findings" id="scanner-findings" data-scanner-view-panel="findings">
+          <div class="empty-state">
+            <span class="empty-state__text">No findings yet. Configure a target and start scanning.</span>
+          </div>
+        </div>
+        <div class="scanner-findings" id="scanner-request-log" data-scanner-view-panel="requests" style="display:none;">
+          <div class="empty-state">
+            <span class="empty-state__text">No scanner requests yet.</span>
+          </div>
+        </div>
+        <div class="scanner-findings" id="scanner-test-log" data-scanner-view-panel="tests" style="display:none;">
+          <div class="empty-state">
+            <span class="empty-state__text">No test attempts yet.</span>
+          </div>
+        </div>
+        <div class="scanner-findings scanner-tree" id="scanner-tree" data-scanner-view-panel="tree"
+          style="display:none;">
+          <div class="empty-state">
+            <span class="empty-state__text">No crawl tree yet.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- SETTINGS TAB                              -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-settings">
+
+      <!-- Proxy Settings -->
+      <div class="section">
+        <div class="section__header">
+          <h3>Proxy Configuration</h3>
+        </div>
+        <div class="settings-group">
+          <div class="form-group">
+            <label class="form-label">Proxy Port</label>
+            <div class="settings-inline">
+              <input type="number" id="settings-proxy-port" class="input input--sm" min="1024" max="65535"
+                style="width:100px;" />
+              <button class="btn btn--primary btn--sm" id="btn-save-proxy-port">Save</button>
+              <span class="settings-note" id="settings-port-status"></span>
+            </div>
+            <span class="settings-hint">⚠ Changing the port requires a full restart of GreyTab</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Agent Integration -->
+      <div class="section">
+        <details class="collapsible-section" id="ai-settings-details">
+          <summary class="collapsible-section__toggle">
+            <h3>AI Agent Integration</h3>
+            <span class="collapsible-section__arrow">&#9660;</span>
+          </summary>
+          <div class="settings-group settings-group--boxed" style="margin-top: 0.5rem;">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="scanner-check" title="Enable external AI model integration">
+                  <input type="checkbox" id="ai-enabled" />
+                  Enable AI Agent
+                </label>
+              </div>
+              <div class="form-group">
+                <label class="scanner-check" title="Use AI to validate scanner findings and reduce false positives">
+                  <input type="checkbox" id="ai-verify-findings" checked />
+                  Verify AutoScan Findings
+                </label>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Provider</label>
+                <select id="ai-provider" class="input input--sm">
+                  <option value="ollama">Ollama (Local/LAN)</option>
+                  <option value="openai">OpenAI (GPT)</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="custom">Custom Endpoint</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Model</label>
+                <input type="text" id="ai-model" class="input input--sm" placeholder="llama3.1:8b" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Endpoint (optional)</label>
+                <input type="text" id="ai-endpoint" class="input input--sm"
+                  placeholder="http://127.0.0.1:11434/api/generate" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">API Key (if required)</label>
+                <input type="password" id="ai-api-key" class="input input--sm" placeholder="sk-..." />
+                <label class="scanner-check" style="margin-top:0.35rem;">
+                  <input type="checkbox" id="ai-clear-key" />
+                  Clear saved key
+                </label>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Timeout (seconds)</label>
+                <input type="number" id="ai-timeout" class="input input--sm" min="5" max="120" value="20" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Temperature (0.0 - 1.0)</label>
+                <input type="number" id="ai-temperature" class="input input--sm" min="0" max="1" step="0.1"
+                  value="0.1" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">AI Review Scope</label>
+                <select id="ai-review-scope" class="input input--sm">
+                  <option value="ambiguous_or_high">Ambiguous + High/Critical</option>
+                  <option value="high_only">High/Critical Only</option>
+                  <option value="all">All Findings</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Max AI Reviews / Scan</label>
+                <input type="number" id="ai-max-reviews" class="input input--sm" min="0" max="200" value="20" />
+                <label class="scanner-check" style="margin-top:0.35rem;">
+                  <input type="checkbox" id="ai-cache-enabled" checked />
+                  Enable AI response cache
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-inline">
+              <button class="btn btn--primary btn--sm" id="btn-ai-save">Save AI Settings</button>
+              <button class="btn btn--ghost btn--sm" id="btn-ai-test">Test Connection</button>
+              <button class="btn btn--ghost btn--sm" id="btn-ai-clear-cache">Clear AI Cache</button>
+              <span class="settings-note" id="ai-status"></span>
+            </div>
+            <span class="settings-hint" id="ai-provider-hint">Tip: for local Ollama, keep endpoint empty or use
+              http://127.0.0.1:11434/api/generate with model llama3.1:8b.</span>
+            <span class="settings-hint">Need setup steps? Click the <b>?</b> button.
+              <button class="btn btn--ghost btn--sm" id="btn-ai-help" title="AI setup help"
+                style="margin-left:0.3rem;">?</button>
+            </span>
+          </div>
+        </details>
+      </div>
+
+      <!-- Custom Tools -->
+      <div class="section" style="flex-shrink: 0;">
+        <div class="section__header">
+          <h3>Custom Tools</h3>
+          <button class="btn btn--primary btn--sm" id="btn-show-add-tool">+ Add Tool</button>
+        </div>
+
+        <!-- Add/Edit Tool Form (hidden by default) -->
+        <div class="settings-tool-form" id="tool-form" style="display:none;">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Name *</label>
+              <input type="text" id="tool-form-name" class="input input--sm" placeholder="mytool" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Command *</label>
+              <input type="text" id="tool-form-command" class="input input--sm" placeholder="/usr/bin/mytool" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Description</label>
+              <input type="text" id="tool-form-description" class="input input--sm" placeholder="What this tool does" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <input type="text" id="tool-form-category" class="input input--sm" placeholder="custom" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Args Template</label>
+            <input type="text" id="tool-form-args" class="input input--sm" placeholder="-u {target} --option" />
+            <span class="settings-hint">Use {target} and {wordlist} as placeholders</span>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="toggle toggle--sm">
+                <input type="checkbox" id="tool-form-requires-target" checked />
+                <span class="toggle__slider"></span>
+              </label>
+              <span class="toggle-label">Requires Target</span>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn--primary btn--sm" id="btn-save-tool">Save Tool</button>
+            <button class="btn btn--ghost btn--sm" id="btn-cancel-tool">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Custom tools list -->
+        <div class="settings-tools-list" id="custom-tools-list">
+          <div class="empty-state">
+            <span class="empty-state__text">No custom tools configured yet.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div> <!-- End App Container -->
+
+  <!-- Context Menu (dynamically positioned via JS) -->
+  <div id="ctx-menu" class="ctx-menu" style="display:none;"></div>
+  <div id="repeater-tab-menu" class="ctx-menu" style="display:none;"></div>
+
+  <input type="file" id="wordlist-upload-input" style="display:none;" />
+
+  <!-- SCANNER DETAIL MODAL -->
+  <div id="scanner-detail-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content modal-content--lg">
+      <div class="modal-header">
+        <h3 id="scanner-modal-title">Scanner Detail</h3>
+        <button class="btn btn--ghost btn--sm" id="btn-close-scanner-modal">✕</button>
+      </div>
+
+      <!-- Finding Summary -->
+      <div class="modal-summary"
+        style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark); font-size: 0.85rem;">
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 1rem;">
+          <span class="text-muted">Vulnerability:</span> <span id="scanner-modal-type"
+            style="font-weight:600; color:var(--danger);">XSS</span>
+          <span class="text-muted">Severity:</span> <span id="scanner-modal-severity" class="badge">HIGH</span>
+          <span class="text-muted">URL:</span> <span id="scanner-modal-url" class="text-accent"
+            style="word-break:break-all; font-family:var(--font-mono);"></span>
+          <span class="text-muted">Parameter:</span> <code id="scanner-modal-param"></code>
+          <span class="text-muted">Score:</span> <span id="scanner-modal-score" class="badge">0</span>
+          <span class="text-muted">Deterministic:</span> <span id="scanner-modal-confirmed">no</span>
+          <span class="text-muted">Insertion:</span> <code id="scanner-modal-insertion">N/A</code>
+        </div>
+        <div style="margin-top: 0.6rem;">
+          <span class="text-muted">Evidence:</span>
+          <div id="scanner-modal-evidence"
+            style="margin-top:0.2rem; padding:0.4rem; background:var(--bg-card); border:1px solid var(--border); border-radius:4px; font-family:var(--font-mono); font-size:0.8rem; max-height:80px; overflow-y:auto;">
+          </div>
+        </div>
+        <div style="margin-top: 0.5rem; font-size:0.8rem;">
+          <span class="text-muted">Suggested Tool:</span>
+          <span id="scanner-modal-tool-hint" style="font-weight:600;"></span>
+        </div>
+        <div style="margin-top: 0.5rem; font-size:0.8rem;">
+          <span class="text-muted">AI Verdict:</span>
+          <span id="scanner-modal-ai-verdict" style="font-weight:600;">Not analyzed</span>
+          <span class="text-muted" style="margin-left:0.75rem;">Confidence:</span>
+          <span id="scanner-modal-ai-confidence" style="font-weight:600;">-</span>
+        </div>
+        <div style="margin-top: 0.35rem;">
+          <span class="text-muted">AI Reasoning:</span>
+          <div id="scanner-modal-ai-reasoning"
+            style="margin-top:0.2rem; padding:0.4rem; background:var(--bg-card); border:1px solid var(--border); border-radius:4px; font-family:var(--font-mono); font-size:0.75rem; max-height:90px; overflow-y:auto;">
+            No AI analysis available.
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions-bar">
+        <button class="btn btn--ghost btn--xs" id="btn-scanner-ai-recheck">AI Re-check</button>
+        <button class="btn btn--ghost btn--xs" id="btn-scanner-feedback-tp">Mark TP</button>
+        <button class="btn btn--ghost btn--xs" id="btn-scanner-feedback-fp">Mark FP</button>
+        <button class="btn btn--ghost btn--xs" id="btn-scanner-to-repeater">To Repeater</button>
+        <button class="btn btn--ghost btn--xs" id="btn-scanner-to-tools">To Tools</button>
+      </div>
+
+      <div class="detail-tabs">
+        <button class="detail-tab detail-tab--active" data-scanner-modal="request">Request</button>
+        <button class="detail-tab" data-scanner-modal="response">Response</button>
+      </div>
+
+      <div class="modal-body-scroll" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+        <pre id="scanner-modal-request" class="code-block"
+          style="flex:1; overflow:auto; padding: 1rem; margin:0;"></pre>
+        <pre id="scanner-modal-response" class="code-block"
+          style="flex:1; overflow:auto; display:none; padding: 1rem; margin:0;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Intruder Detail Modal -->
+
+  <div id="intruder-detail-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content modal-content--lg">
+      <div class="modal-header">
+        <h3>Intruder Result Detail</h3>
+        <button class="btn btn--ghost btn--sm" id="btn-close-intruder-modal">✕</button>
+      </div>
+      <div class="modal-actions-bar">
+        <button class="btn btn--ghost btn--xs" id="btn-intruder-to-repeater">To Repeater</button>
+        <button class="btn btn--ghost btn--xs" id="btn-intruder-to-tools">To Tools</button>
+      </div>
+      <div class="detail-tabs">
+        <button class="detail-tab detail-tab--active" data-intruder-modal="request">Request</button>
+        <button class="detail-tab" data-intruder-modal="response">Response</button>
+      </div>
+      <div class="modal-body-scroll">
+        <pre id="intruder-modal-request" class="code-block"></pre>
+        <pre id="intruder-modal-response" class="code-block" style="display:none;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Help Modal -->
+  <div id="ai-help-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>AI Integration Guide</h3>
+        <button class="btn btn--ghost btn--sm" id="btn-close-ai-help">✕</button>
+      </div>
+      <div class="modal-body">
+        <h4>Quick Setup (Step By Step)</h4>
+        <ol style="padding-left:1.2rem; margin:0.5rem 0;">
+          <li>Open <b>Settings</b> → <b>AI Agent Integration</b>.</li>
+          <li>Enable <b>AI Agent</b> and choose a <b>Provider</b>.</li>
+          <li>Set the <b>Model</b> and <b>Endpoint</b> if needed.</li>
+          <li>Add API key (for cloud providers) or leave empty for local Ollama.</li>
+          <li>Choose <b>AI Review Scope</b> and <b>Max AI Reviews / Scan</b>.</li>
+          <li>Click <b>Test Connection</b>, then <b>Save AI Settings</b>.</li>
+        </ol>
+
+        <h4>Provider Presets</h4>
+        <ul style="padding-left:1.2rem; margin:0.5rem 0;">
+          <li><b>OpenAI (GPT):</b> endpoint default is <code>https://api.openai.com/v1/chat/completions</code>, API key
+            required.</li>
+          <li><b>Anthropic (Claude):</b> endpoint default is <code>https://api.anthropic.com/v1/messages</code>, API key
+            required.</li>
+          <li><b>Google Gemini:</b> use AI Studio API key, endpoint can stay default.</li>
+          <li><b>Ollama Local:</b> <code>http://127.0.0.1:11434/api/generate</code> with model like
+            <code>llama3.1:8b</code>.
+          </li>
+          <li><b>Ollama in LAN/VM:</b> use <code>http://&lt;vm-ip&gt;:11434/api/generate</code> and open firewall/port
+            11434.</li>
+          <li><b>Custom Endpoint:</b> endpoint must accept JSON and return text/JSON model output.</li>
+        </ul>
+
+        <h4>How AutoScanner Uses AI</h4>
+        <ul style="padding-left:1.2rem; margin:0.5rem 0;">
+          <li>Local scanner checks run first. AI is only used for triage and prioritization.</li>
+          <li>AI never replaces deterministic confirmation logic (XSS/SQLi/LFI/Traversal/OAST checks).</li>
+          <li>Use <b>Mark TP</b>/<b>Mark FP</b> in finding details to improve future AI triage.</li>
+          <li>You can run <b>AI Re-check</b> from a finding detail modal.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modular JS: loaded in dependency order -->
+
+  <script src="js/core.js"></script>
+  <script src="js/repeater.js"></script>
+  <script src="js/proxy.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/decoder.js"></script>
+  <script src="js/tools.js"></script>
+  <script src="js/init.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,42 @@
+{
+    "manifest_version": 3,
+    "name": "GreyTab Panel",
+    "version": "0.2.0",
+    "description": "Integrated GreyTab pentesting panel for web auditing",
+    "permissions": [
+        "sidePanel",
+        "activeTab",
+        "tabs",
+        "storage",
+        "webRequest",
+        "cookies"
+    ],
+    "host_permissions": [
+        "http://127.0.0.1:8443/*",
+        "<all_urls>"
+    ],
+    "side_panel": {
+        "default_path": "sidepanel.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_title": "GreyTab",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "32": "icons/icon32.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+    "icons": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; connect-src ws://127.0.0.1:8443 http://127.0.0.1:8443;"
+    }
+}

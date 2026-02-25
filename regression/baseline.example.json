@@ -1,0 +1,46 @@
+{
+  "profiles": {
+    "dvwa": {
+      "target_url": "http://127.0.0.1:8081/",
+      "scan_depth": 2,
+      "test_types": ["xss", "sqli", "path_traversal", "lfi", "open_redirect"],
+      "crawl_enabled": true,
+      "fuzz_dirs": false,
+      "ai_verify_findings": false,
+      "xss_headless_confirm": true,
+      "oast_enabled": false,
+      "expected": [
+        { "vuln_type": "xss", "url_contains": "/vulnerabilities/xss_" },
+        { "vuln_type": "sqli", "url_contains": "/vulnerabilities/sqli" },
+        { "vuln_type": "lfi", "url_contains": "/vulnerabilities/fi" }
+      ]
+    },
+    "juice_shop": {
+      "target_url": "http://127.0.0.1:3000/",
+      "scan_depth": 2,
+      "test_types": ["xss", "sqli", "open_redirect"],
+      "crawl_enabled": true,
+      "fuzz_dirs": false,
+      "ai_verify_findings": false,
+      "xss_headless_confirm": true,
+      "oast_enabled": false,
+      "expected": [
+        { "vuln_type": "xss", "url_contains": "#" }
+      ]
+    },
+    "webgoat": {
+      "target_url": "http://127.0.0.1:8080/WebGoat",
+      "scan_depth": 2,
+      "test_types": ["xss", "sqli", "path_traversal"],
+      "crawl_enabled": true,
+      "fuzz_dirs": false,
+      "ai_verify_findings": false,
+      "xss_headless_confirm": true,
+      "oast_enabled": false,
+      "expected": [
+        { "vuln_type": "sqli", "url_contains": "SqlInjection" },
+        { "vuln_type": "xss", "url_contains": "CrossSiteScripting" }
+      ]
+    }
+  }
+}

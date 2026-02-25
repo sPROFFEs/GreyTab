@@ -1,0 +1,84 @@
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+env/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── User Data & Runtime ──
+# Chromium profile (cookies, cache, history, extensions state)
+profile/
+
+# Saved pentest sessions
+sessions/
+
+# Runtime logs
+logs/
+*.log
+
+# Generated MITM certificates
+certs/
+
+# User config (generated on first run)
+data/config.json
+data/custom_tools.json
+
+# User wordlists (use system wordlists or add your own)
+wordlists/
+
+# User scripts output
+scripts/__pycache__/
+
+# SQLite databases (session data, scan results)
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Chromium / Binaries ──
+ungoogled-chromium-*/
+chrome-linux/
+chromium*/
+*.tar.xz
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+*.AppImage
+
+# ── IDEs & Editors ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+.classpath
+*.code-workspace
+
+# ── OS Generated ──
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Misc ──
+.fuse_hidden*
+*.bak
+*.tmp
+*.orig
+node_modules/

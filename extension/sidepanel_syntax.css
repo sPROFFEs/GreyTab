@@ -1,0 +1,360 @@
+/* ============================================================
+   PentestBrowser - Syntax Highlighting & Context Menu
+   ============================================================ */
+
+:root {
+    --code-bg: #0d1117;
+    --code-fg: #c9d1d9;
+    /* HTTP tokens */
+    --token-method-get: #7ee787;
+    --token-method-post: #d2a8ff;
+    --token-method-put: #ffa657;
+    --token-method-delete: #ff7b72;
+    --token-method-patch: #d2a8ff;
+    --token-method-options: #8b949e;
+    /* Header tokens */
+    --token-header-key: #79c0ff;
+    --token-header-val: #c9d1d9;
+    --token-header-sep: #6e7681;
+    /* URL */
+    --token-url: #a5d6ff;
+    --token-proto: #8b949e;
+    /* Status codes */
+    --token-status-2xx: #7ee787;
+    --token-status-3xx: #ffa657;
+    --token-status-4xx: #ff7b72;
+    --token-status-5xx: #f85149;
+    /* JSON tokens */
+    --token-key: #79c0ff;
+    --token-string: #a5d6ff;
+    --token-number: #ffa657;
+    --token-bool: #ff7b72;
+    --token-null: #8b949e;
+    /* Body text */
+    --token-body-text: #e6edf3;
+}
+
+/* ── Code Areas ───────────────────────────────────────── */
+
+.input--code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background-color: var(--code-bg);
+    color: var(--code-fg);
+    border: 1px solid var(--border);
+}
+
+.code-block {
+    background-color: var(--code-bg);
+    padding: 0.75rem;
+    border-radius: 4px;
+    overflow: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--code-fg);
+    margin: 0;
+    flex: 1;
+    line-height: 1.5;
+    tab-size: 4;
+}
+
+/* ── HTTP Syntax Tokens ───────────────────────────────── */
+
+/* Request/Response line */
+.syn-method {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.syn-method-get {
+    color: var(--token-method-get);
+}
+
+.syn-method-post {
+    color: var(--token-method-post);
+}
+
+.syn-method-put {
+    color: var(--token-method-put);
+}
+
+.syn-method-delete {
+    color: var(--token-method-delete);
+}
+
+.syn-method-patch {
+    color: var(--token-method-patch);
+}
+
+.syn-method-options {
+    color: var(--token-method-options);
+}
+
+.syn-method-head {
+    color: var(--token-method-options);
+}
+
+.syn-url {
+    color: var(--token-url);
+    text-decoration: underline;
+    text-decoration-color: rgba(165, 214, 255, 0.3);
+    text-underline-offset: 2px;
+}
+
+.syn-proto {
+    color: var(--token-proto);
+    font-weight: 400;
+}
+
+/* Status line (response) */
+.syn-status {
+    font-weight: 700;
+}
+
+.syn-status-2xx {
+    color: var(--token-status-2xx);
+}
+
+.syn-status-3xx {
+    color: var(--token-status-3xx);
+}
+
+.syn-status-4xx {
+    color: var(--token-status-4xx);
+}
+
+.syn-status-5xx {
+    color: var(--token-status-5xx);
+}
+
+/* Headers */
+.syn-header-key {
+    color: var(--token-header-key);
+    font-weight: 600;
+}
+
+.syn-header-sep {
+    color: var(--token-header-sep);
+}
+
+.syn-header-val {
+    color: var(--token-header-val);
+}
+
+/* Specific header value styling */
+.syn-header-val-ct {
+    /* Content-Type values */
+    color: #ffa657;
+}
+
+/* Body separator */
+.syn-body-sep {
+    display: block;
+    border-top: 1px dashed rgba(110, 118, 129, 0.3);
+    margin: 2px 0;
+}
+
+/* ── JSON Syntax Tokens ───────────────────────────────── */
+
+.syn-key {
+    color: var(--token-key);
+    font-weight: 600;
+}
+
+.syn-string {
+    color: var(--token-string);
+}
+
+.syn-number {
+    color: var(--token-number);
+}
+
+.syn-bool {
+    color: var(--token-bool);
+    font-weight: 600;
+}
+
+.syn-null {
+    color: var(--token-null);
+    font-style: italic;
+}
+
+/* Braces/brackets */
+.syn-brace {
+    color: #6e7681;
+}
+
+/* ── Body Format Tokens ───────────────────────────────── */
+
+.syn-param-key {
+    color: #79c0ff;
+    font-weight: 600;
+}
+
+.syn-param-eq {
+    color: #6e7681;
+}
+
+.syn-param-val {
+    color: #a5d6ff;
+}
+
+.syn-param-amp {
+    color: #6e7681;
+}
+
+/* ── XML/HTML in body ─────────────────────────────────── */
+.syn-tag {
+    color: #7ee787;
+}
+
+.syn-attr-key {
+    color: #79c0ff;
+}
+
+.syn-attr-val {
+    color: #a5d6ff;
+}
+
+/* ── Tool Smart Context ───────────────────────────────── */
+
+.smart-context {
+    background: rgba(14, 165, 233, 0.08);
+    border-left: 3px solid var(--accent);
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 0 4px 4px 0;
+    color: var(--text-muted);
+}
+
+.smart-context h4 {
+    margin: 0 0 0.4rem 0;
+    color: var(--accent);
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.smart-context .smart-detail {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.smart-tag {
+    display: inline-block;
+    background: var(--bg-dark);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+}
+
+/* ── Tools Grid ───────────────────────────────────────── */
+
+.tool-params-grid {
+    display: grid;
+    gap: 0.75rem;
+    background: var(--bg-card);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+/* ── Context Menu ─────────────────────────────────────── */
+
+.ctx-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 200px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    font-size: 0.8rem;
+    backdrop-filter: blur(8px);
+    animation: ctxFadeIn 0.1s ease-out;
+}
+
+@keyframes ctxFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.ctx-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--text-main);
+    transition: background 0.1s;
+    white-space: nowrap;
+}
+
+.ctx-menu__item:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.ctx-menu__item svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+}
+
+.ctx-menu__separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
+.ctx-menu__label {
+    padding: 4px 12px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+/* ── Tool Quick Actions (in context menu) ─────────────── */
+
+.ctx-menu__item--tool {
+    padding-left: 28px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ctx-menu__item--tool:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.ctx-menu__item--danger {
+    color: var(--danger);
+}
+
+.ctx-menu__item--danger:hover {
+    background: var(--danger);
+    color: white;
+}
