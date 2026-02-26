@@ -2375,12 +2375,16 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
         }
 
         const parsed = parseRawRequest(raw);
+        const normalizedUrl = normalizeParsedRequestUrl(parsed, dom.intruderTarget?.value || '');
 
         try {
+            if (!normalizedUrl) {
+                throw new Error('Invalid request line: missing URL.');
+            }
             const startTime = performance.now();
             const res = await apiRequest('POST', '/api/repeater/send', {
                 method: parsed.method,
-                url: parsed.url,
+                url: normalizedUrl,
                 headers: parsed.headers,
                 body: parsed.body || null,
             });
