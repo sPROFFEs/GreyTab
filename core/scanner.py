@@ -525,6 +525,94 @@ class ScannerEngine:
             except (asyncio.CancelledError, Exception):
                 pass
 
+    async def scan_single_request(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        body: Optional[str] = None,
+        test_types: Optional[List[str]] = None,
+        ai_config: Optional[Dict[str, Any]] = None,
+        ai_analyzer: Optional[Callable[[Dict[str, Any], Dict[str, Any]], Awaitable[Dict[str, Any]]]] = None,
+        oast_enabled: bool = False,
+        oast_base_url: str = "",
+        oast_hit_checker: Optional[Callable[[str], Awaitable[bool]]] = None,
+    ) -> None:
+        """Run active checks against a single captured request — no crawling."""
+        if self.running:
+            raise RuntimeError("Scanner already running")
+        self.running = True
+        self.findings = []
+        self.test_log = []
+        self.crawled_urls = {url}
+        self.queued_urls = set()
+        self._findings_hashes = set()
+        self._cancel_event.clear()
+        self.urls_to_crawl = asyncio.Queue()
+        self.scan_headers = headers or {}
+        self.crawl_enabled = False
+        self.ai_config = ai_config or {}
+        self.ai_analyzer = ai_analyzer
+        self._started_at = time.time()
+        self._activity_seq = 0
+        self._requests_sent = 0
+        self._tests_total = 0
+        self._tests_completed = 0
+        self._errors_count = 0
+        self._current_url = url
+        self._current_stage = "single"
+        self._test_seq = 0
+        self._ai_reviews_used = 0
+        self._ai_cache = dict((self.ai_config or {}).get("runtime_cache", {}) or {})
+        self._feedback_stats = dict((self.ai_config or {}).get("feedback_stats", {}) or {})
+        self._oast_enabled = bool(oast_enabled)
+        self._oast_base_url = str(oast_base_url or "").strip().rstrip("/")
+        self._oast_hit_checker = oast_hit_checker
+
+        parsed = urlparse(url)
+        self.target_host = parsed.hostname or ""
+        self.target_url = url
+        if test_types:
+            self.test_types = test_types
+
+        async def _runner():
+            try:
+                async with httpx.AsyncClient(
+                    verify=False,
+                    follow_redirects=True,
+                    timeout=15.0,
+                    headers=self.scan_headers,
+                ) as client:
+                    try:
+                        if method.upper() == "GET":
+                            resp = await client.get(url)
+                        else:
+                            resp = await client.request(
+                                method.upper(), url,
+                                content=body.encode("utf-8") if body else None,
+                            )
+                        self._requests_sent += 1
+                    except Exception as e:
+                        self._errors_count += 1
+                        if self.broadcast:
+                            await self.broadcast("scanner_complete", {
+                                "running": False,
+                                "error": f"Failed to fetch baseline: {e}",
+                                "findings": [],
+                            })
+                        self.running = False
+                        return
+                    await self._test_url(client, url, resp)
+            finally:
+                self.running = False
+                self._current_stage = "done"
+                if self.broadcast:
+                    status = self.status()
+                    status["progress_percent"] = 100
+                    await self.broadcast("scanner_complete", status)
+
+        self._task = asyncio.create_task(_runner())
+
     async def _scan_loop(self):
         """Main scan loop: crawl and test URLs."""
         try:
@@ -630,11 +718,26 @@ class ScannerEngine:
                 status["progress_percent"] = 100
                 await self.broadcast("scanner_complete", status)
 
+    # Crawler hygiene: skip these file types and cap host pages
+    _SKIP_EXTENSIONS = (
+        ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
+        ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".webm", ".mp3", ".wav",
+        ".pdf", ".zip", ".tar", ".gz", ".7z", ".dmg", ".exe", ".bin",
+    )
+    _HOST_URL_CAP = 500
+
     async def _enqueue_url(self, url: str, depth: int, reason: str) -> bool:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
         if parsed.hostname != self.target_host:
+            return False
+
+        path_lower = (parsed.path or "").lower()
+        if any(path_lower.endswith(ext) for ext in self._SKIP_EXTENSIONS):
+            return False
+
+        if (len(self.crawled_urls) + len(self.queued_urls)) >= self._HOST_URL_CAP:
             return False
 
         normalized = urlunparse(parsed._replace(fragment=""))

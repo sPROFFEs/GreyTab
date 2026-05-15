@@ -1943,11 +1943,128 @@ async function loadSettings() {
         applyAiSettingsToForm(cfg.ai_agent || {});
         handleAiProviderChange();
         renderCustomTools(cfg.custom_tools || {});
+        await loadRulesUI();
+        await loadTokenWatchUI();
         settingsState.loaded = true;
     } catch (e) {
         console.error('Failed to load settings:', e);
     }
 }
+
+// ── Match & Replace rules UI ─────────────────────────────────────
+async function loadRulesUI() {
+    const host = document.getElementById('rules-list');
+    if (!host) return;
+    let rules;
+    try {
+        rules = await apiRequest('GET', '/api/rules');
+    } catch (e) {
+        host.innerHTML = `<span class="settings-hint">Failed to load rules: ${escHtml(e.message)}</span>`;
+        return;
+    }
+    host.innerHTML = '';
+    if (!rules.length) {
+        host.innerHTML = '<div class="empty-state"><span class="empty-state__text">No rules yet.</span></div>';
+        return;
+    }
+    for (const r of rules) host.appendChild(renderRuleRow(r));
+}
+
+function renderRuleRow(r) {
+    const row = document.createElement('div');
+    row.className = 'rule-row';
+    row.dataset.id = r.id || '';
+    row.innerHTML = `
+      <input type="text" class="input input--sm" data-f="name" placeholder="Rule name" value="${escHtml(r.name || '')}">
+      <select class="input input--sm" data-f="phase">
+        <option value="request"${r.phase === 'request' ? ' selected' : ''}>request</option>
+        <option value="response"${r.phase === 'response' ? ' selected' : ''}>response</option>
+      </select>
+      <select class="input input--sm" data-f="target">
+        ${['url', 'header', 'body', 'method', 'status'].map(v => `<option value="${v}"${r.target === v ? ' selected' : ''}>${v}</option>`).join('')}
+      </select>
+      <input type="text" class="input input--sm" data-f="header_name" placeholder="Header name" value="${escHtml(r.header_name || '')}">
+      <input type="text" class="input input--sm" data-f="match" placeholder="match regex" value="${escHtml(r.match || '')}">
+      <input type="text" class="input input--sm" data-f="replace" placeholder="replacement" value="${escHtml(r.replace || '')}">
+      <input type="text" class="input input--sm" data-f="host_filter" placeholder="host" value="${escHtml(r.host_filter || '')}">
+      <label class="scanner-check"><input type="checkbox" data-f="enabled"${r.enabled ? ' checked' : ''}></label>
+      <button class="btn--icon-danger" data-action="delete" title="Delete rule">×</button>
+    `;
+    const save = async () => {
+        const payload = { id: row.dataset.id || undefined };
+        row.querySelectorAll('[data-f]').forEach(el => {
+            const k = el.dataset.f;
+            payload[k] = (el.type === 'checkbox') ? el.checked : el.value;
+        });
+        try {
+            const saved = await apiRequest('POST', '/api/rules', payload);
+            row.dataset.id = saved.id;
+        } catch (e) {
+            console.warn('Rule save failed:', e);
+        }
+    };
+    row.querySelectorAll('[data-f]').forEach(el => {
+        const evt = (el.tagName === 'INPUT' && el.type !== 'checkbox') ? 'change' : 'change';
+        el.addEventListener(evt, save);
+    });
+    row.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+        const id = row.dataset.id;
+        if (id) {
+            try { await apiRequest('DELETE', `/api/rules/${id}`); } catch (e) { /* ignore */ }
+        }
+        row.remove();
+    });
+    return row;
+}
+
+document.getElementById('btn-rule-new')?.addEventListener('click', () => {
+    const host = document.getElementById('rules-list');
+    if (!host) return;
+    const empty = host.querySelector('.empty-state');
+    if (empty) empty.remove();
+    host.appendChild(renderRuleRow({ enabled: true, phase: 'request', target: 'body' }));
+});
+
+document.getElementById('btn-rules-refresh')?.addEventListener('click', () => {
+    loadRulesUI();
+});
+
+// ── Token Watcher UI ─────────────────────────────────────────────
+async function loadTokenWatchUI() {
+    try {
+        const cfg = await apiRequest('GET', '/api/token_watch');
+        document.getElementById('token-watch-enabled').checked = !!cfg.enabled;
+        document.getElementById('token-watch-header').value = cfg.header_name || '';
+        document.getElementById('token-watch-template').value = cfg.header_template || '';
+        document.getElementById('token-watch-body-pat').value = cfg.body_pattern || '';
+        document.getElementById('token-watch-cookie-pat').value = cfg.cookie_pattern || '';
+        const caps = document.getElementById('token-watch-captured');
+        if (caps) {
+            if (cfg.captured) {
+                const when = cfg.captured_at ? new Date(cfg.captured_at * 1000).toLocaleTimeString() : '';
+                caps.textContent = `Captured (${cfg.captured_source || ''}): ${String(cfg.captured).slice(0, 24)}… @ ${when}`;
+            } else {
+                caps.textContent = 'No token captured yet.';
+            }
+        }
+    } catch (e) { /* noop */ }
+}
+
+document.getElementById('btn-token-watch-save')?.addEventListener('click', async () => {
+    const payload = {
+        enabled: document.getElementById('token-watch-enabled').checked,
+        header_name: document.getElementById('token-watch-header').value,
+        header_template: document.getElementById('token-watch-template').value,
+        body_pattern: document.getElementById('token-watch-body-pat').value,
+        cookie_pattern: document.getElementById('token-watch-cookie-pat').value,
+    };
+    try {
+        await apiRequest('POST', '/api/token_watch', payload);
+        loadTokenWatchUI();
+    } catch (e) {
+        alert('Save failed: ' + e.message);
+    }
+});
 
 function renderCustomTools(tools) {
     const list = $('#custom-tools-list');
@@ -2243,11 +2360,64 @@ function updatePositionCount() {
     if (el) el.textContent = `Positions: ${positions}`;
 }
 
+// Load payloads from a local file
+$('#intruder-payload-file')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    try {
+        const text = await f.text();
+        if (dom.intruderPayloads) {
+            dom.intruderPayloads.value = text;
+            scheduleWorkspaceSave();
+        }
+    } catch (e) { console.error('payload file load failed', e); }
+});
+
+// AI: suggest payloads — fetches and prepends them into the payloads textarea.
+$('#btn-intruder-ai-suggest')?.addEventListener('click', async () => {
+    const param = $('#intruder-ai-param')?.value?.trim() || '';
+    const vclass = $('#intruder-ai-class')?.value || 'xss';
+    if (!param) {
+        alert('Enter a parameter name first.');
+        return;
+    }
+    const btn = $('#btn-intruder-ai-suggest');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+        const context = (dom.intruderRawRequest?.value || '').slice(0, 1200);
+        const data = await apiRequest('POST', '/api/ai/suggest_payloads', { parameter: param, vuln_class: vclass, context });
+        const payloads = (data?.payloads || []).join('\n');
+        if (!payloads) {
+            alert('AI returned no payloads.');
+        } else if (dom.intruderPayloads) {
+            const existing = dom.intruderPayloads.value || '';
+            dom.intruderPayloads.value = payloads + (existing ? '\n' + existing : '');
+            scheduleWorkspaceSave();
+        }
+    } catch (e) {
+        alert('AI suggest failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Suggest'; }
+    }
+});
+
 dom.intruderRawRequest?.addEventListener('input', updatePositionCount);
 dom.intruderRawRequest?.addEventListener('input', () => {
     renderIntruderRequestPreview();
     scheduleWorkspaceSave();
 });
+
+// Split payload textarea into multiple sets separated by blank lines.
+function splitPayloadSets(raw) {
+    if (!raw) return [];
+    const blocks = raw.split(/\n\s*\n/);
+    const sets = [];
+    for (const block of blocks) {
+        const lines = block.split('\n').map(s => s.trim()).filter(Boolean);
+        if (lines.length) sets.push(lines);
+    }
+    return sets;
+}
 
 // Get payloads based on type
 async function getPayloads() {
@@ -2327,6 +2497,12 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
 
     let requestQueue = [];
 
+    // For pitchfork/cluster_bomb the user can split sets with a blank line.
+    // If no blank-line separators exist, fall back to using the single list
+    // for every position.
+    const payloadSets = splitPayloadSets(dom.intruderPayloads?.value || '');
+    const useExplicitSets = payloadSets.length > 1;
+
     // Build request queue based on attack type
     if (attackType === 'sniper') {
         // One position at a time, each payload
@@ -2336,20 +2512,55 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
             }
         }
     } else if (attackType === 'battering_ram') {
-        // Same payload in all positions
         for (const payload of payloads) {
             requestQueue.push({ payloads: markers.map(() => payload), displayPayload: payload });
         }
     } else if (attackType === 'pitchfork') {
-        // Each payload set maps to position (for now, single set = all positions get same)
-        for (const payload of payloads) {
-            requestQueue.push({ payloads: markers.map(() => payload), displayPayload: payload });
+        // Zip N lists positionally — list k drives marker k. If too few sets,
+        // reuse the last set for remaining markers.
+        const setsForMarkers = markers.map((_, i) => useExplicitSets ? (payloadSets[i] || payloadSets[payloadSets.length - 1]) : payloads);
+        const minLen = Math.min(...setsForMarkers.map(s => s.length));
+        for (let row = 0; row < minLen; row++) {
+            const rowPayloads = setsForMarkers.map(set => set[row]);
+            requestQueue.push({ payloads: rowPayloads, displayPayload: rowPayloads.join(' | ') });
+        }
+    } else if (attackType === 'cluster_bomb') {
+        // Cartesian product across all positions.
+        const setsForMarkers = markers.map((_, i) => useExplicitSets ? (payloadSets[i] || payloadSets[payloadSets.length - 1]) : payloads);
+        const productCap = 5000;
+        const total = setsForMarkers.reduce((acc, s) => acc * Math.max(1, s.length), 1);
+        if (total > productCap) {
+            dom.intruderProgress.textContent = `Cluster bomb would emit ${total} requests (cap: ${productCap}). Reduce payload sets.`;
+            state.intruder.running = false;
+            $('#btn-intruder-start').style.display = 'inline-flex';
+            $('#btn-intruder-stop').style.display = 'none';
+            return;
+        }
+        const indices = setsForMarkers.map(() => 0);
+        while (true) {
+            const rowPayloads = setsForMarkers.map((set, i) => set[indices[i]]);
+            requestQueue.push({ payloads: rowPayloads, displayPayload: rowPayloads.join(' | ') });
+            let k = setsForMarkers.length - 1;
+            while (k >= 0) {
+                indices[k]++;
+                if (indices[k] < setsForMarkers[k].length) break;
+                indices[k] = 0;
+                k--;
+            }
+            if (k < 0) break;
         }
     } else {
-        // cluster_bomb — similar to sniper for single set
         for (const payload of payloads) {
             requestQueue.push({ payloads: markers.map(() => payload), displayPayload: payload });
         }
+    }
+
+    // Grep-extract pattern (optional). Compiled once per attack.
+    let grepRegex = null;
+    const grepInput = $('#intruder-grep-extract');
+    const grepPattern = (grepInput?.value || '').trim();
+    if (grepPattern) {
+        try { grepRegex = new RegExp(grepPattern, 'i'); } catch (e) { grepRegex = null; }
     }
 
     const total = requestQueue.length;
@@ -2390,6 +2601,13 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
             });
             const elapsed = performance.now() - startTime;
 
+            let extracted = '';
+            if (grepRegex && res.body) {
+                try {
+                    const m = res.body.match(grepRegex);
+                    if (m) extracted = (m[1] || m[0] || '').slice(0, 200);
+                } catch (e) { /* noop */ }
+            }
             const result = {
                 index: completed + 1,
                 payload: item.displayPayload,
@@ -2398,6 +2616,7 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
                 time: Math.round(res.duration_ms || elapsed),
                 request_raw: raw,
                 response: res,
+                extracted,
             };
 
             state.intruder.results.push(result);
@@ -2464,12 +2683,14 @@ function appendIntruderResult(result) {
 
     const statusClass = getStatusClass(result.status_code);
 
+    const extracted = result.extracted || '';
     el.innerHTML = `
     <span class="col-num">${result.index}</span>
     <span class="col-payload" title="${escHtml(result.payload)}">${escHtml(result.payload)}</span>
     <span class="col-status ${statusClass}">${result.status_code || 'ERR'}</span>
     <span class="col-length">${result.length}</span>
     <span class="col-time">${result.time}ms</span>
+    <span class="col-extracted" title="${escHtml(extracted)}">${escHtml(extracted)}</span>
   `;
 
     el.addEventListener('click', () => {

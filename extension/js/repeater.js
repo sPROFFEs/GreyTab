@@ -412,6 +412,8 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.status_text = `${res.status_code}`;
         tab.status_class = `status-badge ${statusClass}`;
         tab.time_text = `${Math.round(res.duration_ms)}ms`;
+        // Keep previous response so the Diff tab can compare consecutive sends.
+        tab.prev_response_raw = tab.response_raw || '';
         tab.response_raw = buildRawResponse(res.status_code, res.headers, res.body);
         tab.response_render = res.body || '';
         applyRepeaterTabToEditor(tab);
@@ -424,6 +426,44 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.response_raw = String(err.message || err);
         tab.response_render = '';
         applyRepeaterTabToEditor(tab);
+    }
+});
+
+// AI: explain the current repeater request / response.
+document.getElementById('btn-repeater-explain')?.addEventListener('click', async () => {
+    const tab = getActiveRepeaterTab();
+    if (!tab) return;
+    const btn = document.getElementById('btn-repeater-explain');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+        const data = await apiRequest('POST', '/api/ai/explain_request', {
+            request_raw: tab.raw_request || '',
+            response_raw: tab.response_raw || '',
+        });
+        alert((data?.text || '(no response)').slice(0, 4000));
+    } catch (e) {
+        alert('AI explain failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Explain'; }
+    }
+});
+
+document.getElementById('btn-repeater-explain-diff')?.addEventListener('click', async () => {
+    const tab = getActiveRepeaterTab();
+    if (!tab) return;
+    if (!tab.prev_response_raw) { alert('Send the request twice to get a diff.'); return; }
+    const btn = document.getElementById('btn-repeater-explain-diff');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+        const data = await apiRequest('POST', '/api/ai/explain_diff', {
+            left: tab.prev_response_raw,
+            right: tab.response_raw || '',
+        });
+        alert((data?.text || '(no response)').slice(0, 4000));
+    } catch (e) {
+        alert('AI explain-diff failed: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Explain Diff'; }
     }
 });
 

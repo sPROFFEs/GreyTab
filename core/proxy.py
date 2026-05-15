@@ -14,6 +14,13 @@ from urllib.parse import urlparse
 from mitmproxy import ctx, http, options
 from mitmproxy.tools.dump import DumpMaster
 
+from core.extras import (
+    apply_rules_to_request,
+    apply_rules_to_response,
+    maybe_capture_token,
+    detect_graphql,
+)
+
 
 @dataclass
 class InterceptedFlow:
@@ -49,7 +56,10 @@ class PentestProxyAddon:
         self._flow_callback: Optional[Callable] = None
         self._intercept_callback: Optional[Callable] = None
         self._response_intercept_callback: Optional[Callable] = None
-        
+        self._ws_callback: Optional[Callable] = None
+        self._token_callback: Optional[Callable] = None
+        self._graphql_callback: Optional[Callable] = None
+
         # State
         self._flow_start_times: Dict[str, float] = {}
         self._pending_flows: Dict[str, http.HTTPFlow] = {}
@@ -60,6 +70,15 @@ class PentestProxyAddon:
         self._flow_callback = on_flow
         self._intercept_callback = on_intercept
         self._response_intercept_callback = on_response_intercept
+
+    def set_ws_callback(self, cb: Callable):
+        self._ws_callback = cb
+
+    def set_token_callback(self, cb: Callable):
+        self._token_callback = cb
+
+    def set_graphql_callback(self, cb: Callable):
+        self._graphql_callback = cb
 
     def set_scope(self, domains: List[str]):
         """Set target scope domains."""
@@ -96,12 +115,65 @@ class PentestProxyAddon:
         """Called when a request is received."""
         parsed = urlparse(flow.request.pretty_url)
         host = parsed.hostname or ""
-        
-        # Even if not in scope, we pass it through. 
+
+        # Even if not in scope, we pass it through.
         # But if intercept is ON and it IS in scope, we stop it.
         in_scope = self._is_in_scope(host)
-        
+
         self._flow_start_times[flow.id] = time.time()
+
+        # ── Match & Replace (request phase) ─────────────────────
+        try:
+            req = flow.request
+            headers = dict(req.headers)
+            try:
+                body = req.content.decode("utf-8", errors="replace") if req.content else ""
+            except Exception:
+                body = ""
+            new_method, new_url, new_headers, new_body, applied = apply_rules_to_request(
+                host, req.method, req.pretty_url, headers, body
+            )
+            if applied:
+                if new_method != req.method:
+                    req.method = new_method
+                if new_url != req.pretty_url:
+                    try:
+                        req.url = new_url
+                    except Exception:
+                        pass
+                # Only modify body/headers if changed (avoid unnecessary work)
+                if new_body != body:
+                    try:
+                        req.content = new_body.encode("utf-8")
+                    except Exception:
+                        pass
+                # Replace headers if changed
+                req.headers.clear()
+                for k, v in new_headers.items():
+                    req.headers[k] = v
+        except Exception as e:
+            print(f"[Proxy] Match&Replace request error: {e}")
+
+        # ── GraphQL detection ───────────────────────────────────
+        try:
+            req = flow.request
+            try:
+                body = req.content.decode("utf-8", errors="replace") if req.content else ""
+            except Exception:
+                body = ""
+            gql = detect_graphql(dict(req.headers), body, req.path or "")
+            if gql and self._graphql_callback:
+                try:
+                    self._graphql_callback({
+                        "url": req.pretty_url,
+                        "host": host,
+                        "method": req.method,
+                        **gql,
+                    })
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         if self.intercept_enabled and in_scope:
             # Don't intercept websocket upgrades or static assets usually
@@ -127,6 +199,54 @@ class PentestProxyAddon:
         parsed = urlparse(flow.request.pretty_url)
         host = parsed.hostname or ""
         in_scope = self._is_in_scope(host)
+
+        # ── Match & Replace (response phase) ────────────────────
+        try:
+            resp = flow.response
+            if resp:
+                headers = dict(resp.headers)
+                try:
+                    body = resp.content.decode("utf-8", errors="replace") if resp.content else ""
+                except Exception:
+                    body = ""
+                new_status, new_headers, new_body, applied = apply_rules_to_response(
+                    host, int(resp.status_code or 0), headers, body
+                )
+                if applied:
+                    if new_status and new_status != resp.status_code:
+                        resp.status_code = new_status
+                    if new_body != body:
+                        try:
+                            resp.content = new_body.encode("utf-8")
+                        except Exception:
+                            pass
+                    resp.headers.clear()
+                    for k, v in new_headers.items():
+                        resp.headers[k] = v
+        except Exception as e:
+            print(f"[Proxy] Match&Replace response error: {e}")
+
+        # ── Token watcher ───────────────────────────────────────
+        try:
+            resp = flow.response
+            if resp and in_scope:
+                try:
+                    body = resp.content.decode("utf-8", errors="replace") if resp.content else ""
+                except Exception:
+                    body = ""
+                captured = maybe_capture_token(dict(resp.headers), body)
+                if captured and self._token_callback:
+                    try:
+                        self._token_callback({
+                            "token": captured[0],
+                            "source": captured[1],
+                            "url": flow.request.pretty_url,
+                            "host": host,
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # Response interception
         if self.intercept_response and in_scope:
@@ -231,6 +351,38 @@ class PentestProxyAddon:
             flow.kill()
             return True
         return False
+
+    def websocket_message(self, flow):
+        """Log each frame on a WebSocket connection."""
+        try:
+            if not flow.websocket or not flow.websocket.messages:
+                return
+            msg = flow.websocket.messages[-1]
+            host = flow.request.host if flow.request else ""
+            if not self._is_in_scope(host):
+                return
+            content = ""
+            try:
+                content = msg.content.decode("utf-8", errors="replace") if isinstance(msg.content, (bytes, bytearray)) else str(msg.content)
+            except Exception:
+                content = "<binary>"
+            payload = {
+                "flow_id": flow.id,
+                "url": flow.request.pretty_url if flow.request else "",
+                "host": host,
+                "direction": "from_client" if msg.from_client else "from_server",
+                "timestamp": time.time(),
+                "content": content[:10000],
+                "length": len(msg.content) if msg.content is not None else 0,
+                "is_text": getattr(msg, "is_text", True),
+            }
+            if self._ws_callback:
+                try:
+                    self._ws_callback(payload)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[Proxy] ws frame error: {e}")
 
     def _serialize_flow_request(self, flow: http.HTTPFlow) -> Dict:
         """Helper to serialize a flow request for API."""

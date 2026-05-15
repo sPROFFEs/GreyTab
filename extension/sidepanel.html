@@ -340,10 +340,14 @@
           <div class="editor-tabs">
             <button class="detail-tab detail-tab--active" data-repeater-res="raw">Raw</button>
             <button class="detail-tab" data-repeater-res="render">Render</button>
+            <button class="detail-tab" data-repeater-res="diff">Diff</button>
+            <button class="btn btn--ghost btn--xs" id="btn-repeater-explain" title="Plain-English summary via AI">Explain</button>
+            <button class="btn btn--ghost btn--xs" id="btn-repeater-explain-diff" title="AI summarise the diff">Explain Diff</button>
           </div>
           <div class="editor-content-flex">
             <pre id="repeater-res-raw" class="code-block"></pre>
             <iframe id="repeater-res-render" class="render-frame" style="display:none;"></iframe>
+            <pre id="repeater-res-diff" class="code-block" style="display:none;"></pre>
           </div>
         </div>
       </div>
@@ -455,6 +459,34 @@
             <label class="form-label">Threads</label>
             <input type="number" id="intruder-threads" class="input input--sm" value="5" min="1" max="50" />
           </div>
+
+          <div class="form-group">
+            <label class="form-label">Grep-Extract (regex, captures column)</label>
+            <input type="text" id="intruder-grep-extract" class="input input--sm"
+              placeholder='e.g. csrf_token"\s*value="([^"]+)' />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Load Payloads From File</label>
+            <input type="file" id="intruder-payload-file" accept=".txt,.lst,.list,.csv,.wordlist" />
+            <div class="form-hint">Tip: for pitchfork/cluster bomb, separate sets with a blank line.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">AI: Suggest payloads</label>
+            <div class="form-row">
+              <input type="text" id="intruder-ai-param" class="input input--sm" placeholder="parameter name" />
+              <select id="intruder-ai-class" class="input input--sm">
+                <option value="xss">xss</option>
+                <option value="sqli">sqli</option>
+                <option value="ssti">ssti</option>
+                <option value="cmdi">cmdi</option>
+                <option value="path_traversal">path_traversal</option>
+                <option value="ssrf">ssrf</option>
+              </select>
+              <button class="btn btn--ghost btn--sm" id="btn-intruder-ai-suggest">Suggest</button>
+            </div>
+          </div>
         </div>
 
         <!-- Attack Controls -->
@@ -476,6 +508,7 @@
             <span class="col-status">Status</span>
             <span class="col-length">Length</span>
             <span class="col-time">Time</span>
+            <span class="col-extracted">Extracted</span>
           </div>
           <div class="intruder-results" id="intruder-results">
             <div class="empty-state">
@@ -775,6 +808,9 @@
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                 </svg>
               </button>
+              <button class="btn btn--ghost btn--sm" id="btn-sitemap" title="Site map">Site Map</button>
+              <button class="btn btn--ghost btn--sm" id="btn-export-har" title="Export traffic as HAR">HAR</button>
+              <button class="btn btn--ghost btn--sm" id="btn-export-findings" title="Export findings (HTML)">Report</button>
               <button class="btn btn--ghost btn--sm" id="btn-clear-history" title="Clear History">Clear</button>
             </div>
           </div>
@@ -783,6 +819,7 @@
               <span class="empty-state__text">No requests logged yet.</span>
             </div>
           </div>
+          <div id="sitemap-panel" style="display:none;padding:6px 10px;overflow:auto;"></div>
         </div>
 
         <!-- Findings Popup (centered internal popup) -->
@@ -998,6 +1035,69 @@
             <span class="settings-hint">⚠ Changing the port requires a full restart of GreyTab</span>
           </div>
         </div>
+      </div>
+
+      <!-- Match & Replace rules -->
+      <div class="section">
+        <details class="collapsible-section">
+          <summary class="collapsible-section__toggle">
+            <h3>Match &amp; Replace Rules</h3>
+            <span class="collapsible-section__arrow">&#9660;</span>
+          </summary>
+          <div class="settings-group settings-group--boxed" style="margin-top: 0.5rem;">
+            <div class="form-hint">
+              Rules run inside the proxy. Match is a regex, Replace supports back-refs (<code>\1</code>).
+              For headers, leave Match empty to set/replace the entire value.
+            </div>
+            <div id="rules-list" style="margin-top:0.5rem;"></div>
+            <div class="form-row" style="margin-top:0.5rem;">
+              <button class="btn btn--ghost btn--sm" id="btn-rule-new">+ New Rule</button>
+              <button class="btn btn--ghost btn--sm" id="btn-rules-refresh">Refresh</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Token watcher -->
+      <div class="section">
+        <details class="collapsible-section">
+          <summary class="collapsible-section__toggle">
+            <h3>Token Watcher</h3>
+            <span class="collapsible-section__arrow">&#9660;</span>
+          </summary>
+          <div class="settings-group settings-group--boxed" style="margin-top:0.5rem;">
+            <div class="form-row">
+              <label class="scanner-check">
+                <input type="checkbox" id="token-watch-enabled" />
+                Enable token capture &amp; auto-injection
+              </label>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Inject Header</label>
+                <input type="text" id="token-watch-header" class="input input--sm" placeholder="Authorization" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Header Template (use {token})</label>
+                <input type="text" id="token-watch-template" class="input input--sm" placeholder="Bearer {token}" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:1;">
+                <label class="form-label">Body Pattern (regex)</label>
+                <input type="text" id="token-watch-body-pat" class="input input--sm" />
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label class="form-label">Set-Cookie Pattern (regex)</label>
+                <input type="text" id="token-watch-cookie-pat" class="input input--sm" />
+              </div>
+            </div>
+            <div class="form-row" style="margin-top:0.5rem;align-items:center;">
+              <button class="btn btn--primary btn--sm" id="btn-token-watch-save">Save</button>
+              <span id="token-watch-captured" class="settings-hint"></span>
+            </div>
+          </div>
+        </details>
       </div>
 
       <!-- AI Agent Integration -->

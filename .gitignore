@@ -32,6 +32,9 @@ certs/
 # User config (generated on first run)
 data/config.json
 data/custom_tools.json
+data/match_replace_rules.json
+data/login_macros.json
+data/token_watch.json
 
 # User wordlists (use system wordlists or add your own)
 wordlists/

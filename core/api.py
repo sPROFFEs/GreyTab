@@ -29,6 +29,7 @@ from core.ai_agent import (
     mask_ai_agent_config,
     normalize_ai_agent_config,
 )
+from core import extras as gx
 
 
 # ── Globals ─────────────────────────────────────────────────────
@@ -166,6 +167,67 @@ def on_response_interception(flow_data):
     )
 
 
+def on_ws_frame(payload):
+    """Called when a websocket frame is observed."""
+    try:
+        asyncio.get_event_loop().call_soon_threadsafe(
+            asyncio.create_task, _handle_ws_frame(payload)
+        )
+    except Exception:
+        pass
+
+
+def on_token_captured(payload):
+    """Called when the token watcher captures a value from a response."""
+    try:
+        cfg = gx.load_token_watch()
+        cfg["captured"] = payload.get("token", "")
+        cfg["captured_at"] = time.time()
+        cfg["captured_source"] = payload.get("source", "")
+        gx.save_token_watch(cfg)
+        asyncio.get_event_loop().call_soon_threadsafe(
+            asyncio.create_task,
+            broadcast("token_captured", {
+                "source": payload.get("source", ""),
+                "url": payload.get("url", ""),
+                "preview": (payload.get("token", "") or "")[:24] + ("…" if len(payload.get("token", "") or "") > 24 else ""),
+                "captured_at": cfg["captured_at"],
+            })
+        )
+    except Exception as e:
+        print(f"[API] token capture handler error: {e}")
+
+
+def on_graphql_seen(payload):
+    """Called when a GraphQL-looking request flows through the proxy."""
+    try:
+        asyncio.get_event_loop().call_soon_threadsafe(
+            asyncio.create_task,
+            broadcast("graphql_request", payload)
+        )
+    except Exception:
+        pass
+
+
+async def _handle_ws_frame(payload: dict):
+    if not current_session_id:
+        return
+    try:
+        await db.log_ws_frame(
+            session_id=current_session_id,
+            flow_id=str(payload.get("flow_id") or ""),
+            url=str(payload.get("url") or ""),
+            host=str(payload.get("host") or ""),
+            direction=str(payload.get("direction") or ""),
+            content=str(payload.get("content") or ""),
+            length=int(payload.get("length") or 0),
+            is_text=bool(payload.get("is_text", True)),
+        )
+        await broadcast("ws_frame", payload)
+    except Exception as e:
+        print(f"[API] ws frame log error: {e}")
+
+
 async def _handle_flow(flow):
     """Process a completed HTTP flow."""
     global current_session_id
@@ -214,6 +276,9 @@ async def lifespan(app: FastAPI):
     await db.connect()
     proxy_manager.set_callbacks(on_proxy_flow, on_interception, on_response_interception)
     proxy_manager.set_excludes(config.proxy.exclude_domains)
+    proxy_manager.addon.set_ws_callback(on_ws_frame)
+    proxy_manager.addon.set_token_callback(on_token_captured)
+    proxy_manager.addon.set_graphql_callback(on_graphql_seen)
     await proxy_manager.start()
     print(f"[API] Backend running on {config.api.host}:{config.api.port}")
     print(f"[Proxy] Intercepting on {config.proxy.host}:{config.proxy.port}")
@@ -1005,10 +1070,467 @@ async def health():
 
     return {
         "status": "ok",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "session_id": current_session_id,
         "proxy_running": proxy_manager.is_running,
         "proxy_port": config.proxy.port,
         "memory_mb": round(mem_mb, 1),
         "ws_clients": len(ws_connections),
     }
+
+
+# ──────────────────────────────────────────────────────────────────
+# Match & Replace rules
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/rules")
+async def list_rules():
+    return [r.to_dict() for r in gx.load_rules()]
+
+
+@app.post("/api/rules")
+async def create_or_update_rule(req: Dict):
+    try:
+        r = gx.upsert_rule(req)
+        return r.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Bad rule: {e}")
+
+
+@app.delete("/api/rules/{rule_id}")
+async def remove_rule(rule_id: str):
+    if not gx.delete_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "ok"}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Token watcher
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/token_watch")
+async def token_watch_get():
+    return gx.load_token_watch()
+
+
+@app.post("/api/token_watch")
+async def token_watch_update(req: Dict):
+    return gx.save_token_watch(req or {})
+
+
+# ──────────────────────────────────────────────────────────────────
+# Login macros
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/macros")
+async def macros_list():
+    return gx.list_macros()
+
+
+@app.post("/api/macros")
+async def macros_save(req: Dict):
+    return gx.save_macro(req or {})
+
+
+@app.delete("/api/macros/{macro_id}")
+async def macros_delete(macro_id: str):
+    if not gx.delete_macro(macro_id):
+        raise HTTPException(status_code=404, detail="Macro not found")
+    return {"status": "ok"}
+
+
+@app.post("/api/macros/{macro_id}/run")
+async def macros_run(macro_id: str):
+    """Replay a login macro and return the captured value(s)."""
+    macro = gx.get_macro(macro_id)
+    if not macro:
+        raise HTTPException(status_code=404, detail="Macro not found")
+    import httpx as _httpx
+    import re as _re
+    extracted: Dict[str, str] = {}
+    try:
+        async with _httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15.0) as client:
+            for step in macro.get("steps", []) or []:
+                method = (step.get("method") or "GET").upper()
+                url = step.get("url") or ""
+                headers = dict(step.get("headers") or {})
+                body = step.get("body") or ""
+                # Variable interpolation
+                for k, v in extracted.items():
+                    url = url.replace("{" + k + "}", v)
+                    body = body.replace("{" + k + "}", v)
+                    for hk in list(headers.keys()):
+                        headers[hk] = headers[hk].replace("{" + k + "}", v)
+
+                resp = await client.request(
+                    method, url, headers=headers,
+                    content=body.encode("utf-8") if body else None,
+                )
+
+                for var, pattern in (step.get("extract") or {}).items():
+                    if not pattern:
+                        continue
+                    kind = step.get("extract_kind", "regex")
+                    if kind == "header":
+                        val = resp.headers.get(pattern, "")
+                        if val:
+                            extracted[var] = val
+                    else:
+                        try:
+                            m = _re.search(pattern, resp.text or "")
+                            if m:
+                                extracted[var] = m.group(1) if m.groups() else m.group(0)
+                        except _re.error:
+                            continue
+        # Optional auto-inject
+        if macro.get("inject_header") and macro.get("inject_template"):
+            tmpl = macro["inject_template"]
+            for k, v in extracted.items():
+                tmpl = tmpl.replace("{" + k + "}", v)
+            cfg = gx.load_token_watch()
+            cfg["captured"] = next(iter(extracted.values()), "") if extracted else ""
+            cfg["captured_source"] = "macro"
+            cfg["captured_at"] = time.time()
+            cfg["enabled"] = True
+            cfg["header_name"] = macro["inject_header"]
+            cfg["header_template"] = macro["inject_template"]
+            gx.save_token_watch(cfg)
+        return {"status": "ok", "extracted": extracted}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Macro failed: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Exports
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/export/findings.html", response_class=PlainTextResponse)
+async def export_findings_html(session_id: Optional[str] = None):
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    session = await db.get_session(sid) or {}
+    findings = await db.get_findings(sid)
+    html = gx.findings_to_html(session, findings)
+    return PlainTextResponse(html, media_type="text/html")
+
+
+@app.get("/api/export/findings.csv", response_class=PlainTextResponse)
+async def export_findings_csv(session_id: Optional[str] = None):
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    findings = await db.get_findings(sid)
+    return PlainTextResponse(gx.findings_to_csv(findings), media_type="text/csv")
+
+
+@app.get("/api/export/findings.md", response_class=PlainTextResponse)
+async def export_findings_md(session_id: Optional[str] = None):
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    session = await db.get_session(sid) or {}
+    findings = await db.get_findings(sid)
+    return PlainTextResponse(gx.findings_to_markdown(session, findings), media_type="text/markdown")
+
+
+@app.get("/api/export/traffic.har")
+async def export_traffic_har(session_id: Optional[str] = None, limit: int = 5000):
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    session = await db.get_session(sid) or {}
+    logs = await db.get_http_logs(sid, limit=min(max(1, limit), 50000))
+    return gx.http_logs_to_har(session, logs)
+
+
+# ──────────────────────────────────────────────────────────────────
+# WebSocket frame log
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/ws_log")
+async def ws_log_list(session_id: Optional[str] = None, flow_id: Optional[str] = None, limit: int = 500):
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    return await db.get_ws_frames(sid, flow_id=flow_id, limit=min(max(1, limit), 5000))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Site map
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/sitemap")
+async def sitemap(session_id: Optional[str] = None):
+    """Aggregate logged requests into a host → path tree."""
+    sid = session_id or current_session_id
+    if not sid:
+        raise HTTPException(status_code=400, detail="No session")
+    logs = await db.get_http_logs(sid, limit=20000)
+    tree: Dict[str, Dict[str, Any]] = {}
+    for log in logs:
+        host = log.get("host") or ""
+        path = log.get("path") or "/"
+        method = log.get("method") or "GET"
+        status = int(log.get("status_code") or 0)
+        host_node = tree.setdefault(host, {"host": host, "endpoints": {}})
+        ep = host_node["endpoints"].setdefault(path, {"path": path, "methods": {}, "count": 0, "statuses": {}})
+        ep["count"] += 1
+        ep["methods"][method] = ep["methods"].get(method, 0) + 1
+        if status:
+            ep["statuses"][str(status)] = ep["statuses"].get(str(status), 0) + 1
+    # Flatten endpoints back to list
+    result = []
+    for h in sorted(tree.keys()):
+        node = tree[h]
+        endpoints = list(node["endpoints"].values())
+        endpoints.sort(key=lambda e: e["path"])
+        result.append({"host": node["host"], "endpoints": endpoints, "count": sum(e["count"] for e in endpoints)})
+    return {"hosts": result, "total_hosts": len(result)}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Active scan from a captured request
+# ──────────────────────────────────────────────────────────────────
+
+class ScanFromRequest(BaseModel):
+    log_id: Optional[int] = None
+    method: Optional[str] = None
+    url: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    body: Optional[str] = None
+    test_types: List[str] = ["xss", "sqli", "path_traversal", "lfi", "open_redirect", "ssti", "cmdi", "crlf", "ssrf", "cors"]
+
+
+@app.post("/api/scanner/from_request")
+async def scan_from_request(req: ScanFromRequest):
+    if scanner.running:
+        raise HTTPException(status_code=400, detail="Scanner already running")
+    method = req.method or "GET"
+    url = req.url or ""
+    headers = req.headers or {}
+    body = req.body
+    if req.log_id and (not url or not method):
+        log = await db.get_http_log_detail(req.log_id)
+        if not log:
+            raise HTTPException(status_code=404, detail="Log entry not found")
+        method = method or log.get("method") or "GET"
+        url = url or log.get("url") or ""
+        try:
+            headers = headers or json.loads(log.get("request_headers") or "{}")
+        except Exception:
+            pass
+        body = body or log.get("request_body")
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    ai_cfg = get_ai_agent_config()
+    ai_cfg["runtime_cache"] = ai_review_cache
+    ai_cfg["feedback_stats"] = ai_feedback_stats
+    try:
+        await scanner.scan_single_request(
+            method=method,
+            url=url,
+            headers=headers,
+            body=body,
+            test_types=req.test_types,
+            ai_config=ai_cfg,
+            ai_analyzer=ai_agent.analyze_finding,
+            oast_hit_checker=oast_hit_checker,
+        )
+        return {"status": "started", "url": url}
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Race-condition tester
+# ──────────────────────────────────────────────────────────────────
+
+class RaceRequest(BaseModel):
+    method: str = "POST"
+    url: str
+    headers: Dict[str, str] = {}
+    body: Optional[str] = None
+    parallel: int = 30
+    follow_redirects: bool = False
+
+
+@app.post("/api/race/run")
+async def race_run(req: RaceRequest):
+    """Fire N requests in parallel and return their timeline."""
+    import httpx as _httpx
+    n = max(2, min(int(req.parallel), 200))
+    headers = {k: v for k, v in (req.headers or {}).items()
+               if k.lower() not in ("content-length", "host")}
+    body_bytes = req.body.encode("utf-8") if req.body else None
+
+    async def one(client, idx):
+        t0 = time.perf_counter()
+        try:
+            r = await client.request(req.method, req.url, headers=headers, content=body_bytes)
+            t1 = time.perf_counter()
+            text = ""
+            try:
+                text = r.content.decode("utf-8", errors="replace")[:1500]
+            except Exception:
+                text = ""
+            return {
+                "index": idx,
+                "status": r.status_code,
+                "duration_ms": round((t1 - t0) * 1000, 2),
+                "length": len(r.content),
+                "body": text,
+            }
+        except Exception as e:
+            return {"index": idx, "status": 0, "duration_ms": 0, "length": 0, "error": str(e)}
+
+    async with _httpx.AsyncClient(verify=False, follow_redirects=req.follow_redirects, timeout=30.0) as client:
+        results = await asyncio.gather(*(one(client, i) for i in range(n)))
+    statuses: Dict[str, int] = {}
+    for r in results:
+        statuses[str(r["status"])] = statuses.get(str(r["status"]), 0) + 1
+    return {
+        "count": n,
+        "statuses": statuses,
+        "results": results,
+        "unique_lengths": sorted(set(r["length"] for r in results)),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────
+# JWT inspector
+# ──────────────────────────────────────────────────────────────────
+
+class JwtRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/jwt/decode")
+async def jwt_decode(req: JwtRequest):
+    try:
+        return gx.decode_jwt(req.token.strip())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class JwtResignRequest(BaseModel):
+    token: str
+    key: str = ""
+    alg: str = "HS256"  # HS256 | none
+
+
+@app.post("/api/jwt/resign")
+async def jwt_resign(req: JwtResignRequest):
+    try:
+        decoded = gx.decode_jwt(req.token.strip())
+        if req.alg.lower() == "none":
+            return {"token": gx.jwt_strip_signature(req.token.strip())}
+        if not req.key:
+            raise HTTPException(status_code=400, detail="key required for HS256")
+        new = gx.jwt_resign_hs256(decoded["header"], decoded["payload"], req.key)
+        return {"token": new}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+# GraphQL helper
+# ──────────────────────────────────────────────────────────────────
+
+class GraphQLIntrospect(BaseModel):
+    url: str
+    headers: Dict[str, str] = {}
+
+
+@app.post("/api/graphql/introspect")
+async def graphql_introspect(req: GraphQLIntrospect):
+    import httpx as _httpx
+    headers = dict(req.headers or {})
+    headers.setdefault("Content-Type", "application/json")
+    async with _httpx.AsyncClient(verify=False, timeout=20.0) as client:
+        try:
+            r = await client.post(
+                req.url, headers=headers,
+                json={"query": gx.INTROSPECTION_QUERY},
+            )
+            return {
+                "status": r.status_code,
+                "introspection": r.json() if "json" in (r.headers.get("content-type") or "").lower() else {"raw": r.text[:5000]},
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+# AI extras
+# ──────────────────────────────────────────────────────────────────
+
+class AIExplainRequest(BaseModel):
+    request_raw: str
+    response_raw: str = ""
+
+
+@app.post("/api/ai/explain_request")
+async def ai_explain_request(req: AIExplainRequest):
+    cfg = get_ai_agent_config()
+    if not cfg.get("enabled"):
+        raise HTTPException(status_code=400, detail="AI agent is disabled in settings")
+    try:
+        return await ai_agent.explain_request(cfg, req.request_raw, req.response_raw)
+    except AIAgentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class AISuggestPayloads(BaseModel):
+    parameter: str = ""
+    context: str = ""
+    vuln_class: str = "xss"
+
+
+@app.post("/api/ai/suggest_payloads")
+async def ai_suggest_payloads(req: AISuggestPayloads):
+    cfg = get_ai_agent_config()
+    if not cfg.get("enabled"):
+        raise HTTPException(status_code=400, detail="AI agent is disabled in settings")
+    try:
+        return await ai_agent.suggest_payloads(cfg, req.parameter, req.context, req.vuln_class)
+    except AIAgentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class AIExplainDiff(BaseModel):
+    left: str
+    right: str
+
+
+@app.post("/api/ai/explain_diff")
+async def ai_explain_diff(req: AIExplainDiff):
+    cfg = get_ai_agent_config()
+    if not cfg.get("enabled"):
+        raise HTTPException(status_code=400, detail="AI agent is disabled in settings")
+    try:
+        return await ai_agent.explain_diff(cfg, req.left, req.right)
+    except AIAgentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Per-row highlight/comment overlay
+# ──────────────────────────────────────────────────────────────────
+
+class LogMeta(BaseModel):
+    highlight: str = ""
+    comment: str = ""
+
+
+@app.post("/api/logs/http/{log_id}/meta")
+async def set_log_meta(log_id: int, req: LogMeta):
+    await db.set_log_meta(log_id, req.highlight or "", req.comment or "")
+    return {"status": "ok"}
+
+
+@app.get("/api/logs/http/{log_id}/meta")
+async def get_log_meta(log_id: int):
+    return await db.get_log_meta(log_id)

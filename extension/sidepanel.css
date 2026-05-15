@@ -1366,6 +1366,88 @@ body.intercept-active {
   color: var(--text-muted);
 }
 
+.col-extracted {
+  flex: 1;
+  min-width: 80px;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+/* Quick-copy buttons on request rows */
+.req-quick-copy {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  margin-right: 4px;
+  line-height: 1;
+}
+.req-quick-copy:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+/* Form rows for inline labelled controls */
+.form-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.form-hint {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  margin-top: 2px;
+}
+
+/* Sitemap panel */
+.sitemap-host {
+  margin: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 4px;
+}
+.sitemap-host__name {
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.sitemap-host__count {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sitemap-endpoint {
+  padding: 2px 0 2px 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sitemap-endpoint__path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitemap-endpoint__badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,0.05); }
+
+/* Rules editor */
+.rule-row {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px 1fr 1fr 80px 60px 30px;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.rule-row input, .rule-row select {
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
 /* Intruder position markers in textarea — highlighted via JS overlay */
 .intruder-controls {
   display: flex;

@@ -77,12 +77,34 @@ CREATE TABLE IF NOT EXISTS findings (
     FOREIGN KEY (source_request_id) REFERENCES http_log(id)
 );
 
+CREATE TABLE IF NOT EXISTS ws_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    timestamp REAL NOT NULL,
+    flow_id TEXT,
+    url TEXT,
+    host TEXT,
+    direction TEXT,
+    content TEXT,
+    length INTEGER,
+    is_text INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS http_log_meta (
+    log_id INTEGER PRIMARY KEY,
+    highlight TEXT DEFAULT '',
+    comment TEXT DEFAULT '',
+    updated_at REAL
+);
+
 CREATE INDEX IF NOT EXISTS idx_http_log_session ON http_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_http_log_host ON http_log(host);
 CREATE INDEX IF NOT EXISTS idx_http_log_status ON http_log(status_code);
 CREATE INDEX IF NOT EXISTS idx_tool_runs_session ON tool_runs(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_session ON findings(session_id);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_ws_session ON ws_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_ws_flow ON ws_log(flow_id);
 """
 
 
@@ -225,6 +247,56 @@ class LoggerDB:
         )
         await self._db.commit()
         return int(cursor.rowcount or 0)
+
+    # ── WebSocket frames ────────────────────────────────────────
+
+    async def log_ws_frame(self, session_id: str, flow_id: str, url: str, host: str,
+                           direction: str, content: str, length: int, is_text: bool = True) -> int:
+        now = time.time()
+        cursor = await self._db.execute(
+            """INSERT INTO ws_log
+               (session_id, timestamp, flow_id, url, host, direction, content, length, is_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, flow_id, url, host, direction, (content or "")[:20000],
+             int(length or 0), int(is_text))
+        )
+        await self._db.commit()
+        return cursor.lastrowid
+
+    async def get_ws_frames(self, session_id: str, flow_id: Optional[str] = None,
+                            limit: int = 1000) -> List[Dict]:
+        if flow_id:
+            query = ("SELECT * FROM ws_log WHERE session_id = ? AND flow_id = ? "
+                     "ORDER BY timestamp ASC LIMIT ?")
+            params = (session_id, flow_id, limit)
+        else:
+            query = "SELECT * FROM ws_log WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?"
+            params = (session_id, limit)
+        async with self._db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    # ── Per-row highlight/comment overlay ───────────────────────
+
+    async def set_log_meta(self, log_id: int, highlight: str = "", comment: str = "") -> None:
+        now = time.time()
+        await self._db.execute(
+            """INSERT INTO http_log_meta (log_id, highlight, comment, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(log_id) DO UPDATE SET
+                   highlight=excluded.highlight,
+                   comment=excluded.comment,
+                   updated_at=excluded.updated_at""",
+            (log_id, highlight or "", comment or "", now),
+        )
+        await self._db.commit()
+
+    async def get_log_meta(self, log_id: int) -> Dict:
+        async with self._db.execute(
+            "SELECT * FROM http_log_meta WHERE log_id = ?", (log_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else {"log_id": log_id, "highlight": "", "comment": ""}
 
     # ── Tool Runs ───────────────────────────────────────────────
 

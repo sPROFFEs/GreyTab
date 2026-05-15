@@ -215,6 +215,53 @@ class AIAgentClient:
             "follow_up_tests": cleaned_followups,
         }
 
+    async def explain_request(self, cfg: Dict[str, Any], request_raw: str, response_raw: str = "") -> Dict[str, Any]:
+        """Ask the model for a plain-English explanation of an HTTP request."""
+        prompt = (
+            "You are explaining an HTTP exchange to a security tester. "
+            "Be concise (under 200 words). Cover: the purpose of the endpoint, "
+            "interesting parameters, auth signals, and any obvious risks worth probing.\n\n"
+            f"Request:\n{request_raw[:4000]}\n\nResponse:\n{response_raw[:3000]}\n"
+        )
+        text = await self._invoke_provider(cfg, prompt, max_tokens=400)
+        return {"text": (text or "").strip()[:4000]}
+
+    async def suggest_payloads(self, cfg: Dict[str, Any], parameter: str, context: str = "",
+                                vuln_class: str = "xss") -> Dict[str, Any]:
+        """Ask the model for a short payload list tailored to the parameter / context."""
+        prompt = (
+            f"Suggest exactly 12 fuzzing payloads for the parameter '{parameter}' "
+            f"targeting class '{vuln_class}'. Context: {context[:1200]}\n"
+            "Return ONLY a JSON array of strings. No commentary, no markdown fences."
+        )
+        text = await self._invoke_provider(cfg, prompt, max_tokens=500)
+        payloads: List[str] = []
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                for item in data[:32]:
+                    s = str(item)
+                    if s:
+                        payloads.append(s[:500])
+        except Exception:
+            # Fallback: split on newlines
+            for line in (text or "").splitlines():
+                s = line.strip().lstrip("-").lstrip("*").strip().strip(",").strip('"')
+                if s:
+                    payloads.append(s[:500])
+        return {"payloads": payloads[:32]}
+
+    async def explain_diff(self, cfg: Dict[str, Any], left: str, right: str) -> Dict[str, Any]:
+        """Plain-English explanation of differences between two HTTP responses."""
+        prompt = (
+            "Two HTTP responses are below. Summarise the meaningful differences in under 150 words: "
+            "status code, header changes, body content shifts (e.g. error to success), "
+            "and any indication of vulnerability or behavioural change.\n\n"
+            f"RESPONSE A:\n{left[:3500]}\n\nRESPONSE B:\n{right[:3500]}\n"
+        )
+        text = await self._invoke_provider(cfg, prompt, max_tokens=400)
+        return {"text": (text or "").strip()[:4000]}
+
     def _build_finding_prompt(self, finding: Dict[str, Any]) -> str:
         url = str(finding.get("url", ""))[:500]
         vuln_type = str(finding.get("vuln_type", ""))[:80]

@@ -619,14 +619,48 @@ function renderRequestItem(log, prepend = false) {
         <div class="req-host">Host: ${escHtml(log.host)}</div>
       </div>
       <div class="req-meta">
+        <button class="req-quick-copy" data-action="copy-curl" title="Copy as curl">📋</button>
+        <button class="req-quick-copy" data-action="scan" title="Scan this request">⚡</button>
         <span class="req-status ${statusClass}">${log.status_code || ''}</span>
       </div>
     `;
 
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+        // Quick-action buttons should not bubble to detail-open.
+        if (e.target?.closest?.('.req-quick-copy')) return;
         dom.requestList.querySelectorAll('.request-item--active').forEach(x => x.classList.remove('request-item--active'));
         el.classList.add('request-item--active');
         showRequestDetail(log.id);
+    });
+
+    // Quick action: copy-as-curl directly from the row
+    el.querySelectorAll('.req-quick-copy').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const action = btn.dataset.action;
+            if (action === 'copy-curl') {
+                try {
+                    const full = await apiRequest('GET', `/api/logs/http/${log.id}`);
+                    const curl = (typeof buildCurlCommand === 'function') ? buildCurlCommand(full) : `curl -v '${log.url}'`;
+                    await navigator.clipboard.writeText(curl);
+                    btn.textContent = '✓';
+                    setTimeout(() => btn.textContent = '📋', 700);
+                } catch (err) {
+                    btn.textContent = '✗';
+                    setTimeout(() => btn.textContent = '📋', 700);
+                }
+            } else if (action === 'scan') {
+                try {
+                    await apiRequest('POST', '/api/scanner/from_request', { log_id: log.id });
+                    btn.textContent = '✓';
+                    setTimeout(() => btn.textContent = '⚡', 700);
+                    if (typeof activateTab === 'function') activateTab('autoscanner');
+                } catch (err) {
+                    btn.textContent = '✗';
+                    setTimeout(() => btn.textContent = '⚡', 700);
+                }
+            }
+        });
     });
 
     // Context menu on right-click
@@ -730,10 +764,135 @@ async function showRequestDetail(logId) {
         dom.detailResponse.innerHTML = highlightHttp(resRaw);
 
         dom.requestDetail.style.display = 'flex';
+
+        // JWT chip — scan headers + body for JWT-looking tokens and expose actions.
+        try { renderJwtChipsForLog(log); } catch (e) { /* noop */ }
     } catch (e) {
         console.error('Failed to load request detail:', e);
     }
 }
+
+const JWT_REGEX = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g;
+
+function findJwtsInLog(log) {
+    const hay = [
+        log.request_headers || '',
+        log.request_body || '',
+        log.response_headers || '',
+        log.response_body_preview || '',
+    ].join('\n');
+    const out = new Set();
+    let m;
+    while ((m = JWT_REGEX.exec(hay))) out.add(m[0]);
+    return Array.from(out);
+}
+
+function renderJwtChipsForLog(log) {
+    let host = document.getElementById('jwt-chip-host');
+    if (!host) {
+        host = document.createElement('div');
+        host.id = 'jwt-chip-host';
+        host.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;';
+        dom.requestDetail?.prepend(host);
+    }
+    host.innerHTML = '';
+    const tokens = findJwtsInLog(log);
+    if (tokens.length === 0) return;
+    for (const t of tokens) {
+        const chip = document.createElement('button');
+        chip.className = 'btn btn--ghost btn--xs';
+        chip.textContent = `JWT (${t.slice(0, 12)}…)`;
+        chip.title = 'Click to decode';
+        chip.addEventListener('click', async () => {
+            try {
+                const decoded = await apiRequest('POST', '/api/jwt/decode', { token: t });
+                const txt = JSON.stringify(decoded, null, 2);
+                alert(txt.slice(0, 5000));
+            } catch (e) {
+                alert('JWT decode failed: ' + e.message);
+            }
+        });
+        host.appendChild(chip);
+    }
+}
+
+// ── Global keyboard shortcuts ────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    // Ignore when typing in input/textarea (unless Ctrl/Cmd combo)
+    const tag = (e.target?.tagName || '').toLowerCase();
+    const typing = (tag === 'input' || tag === 'textarea' || e.target?.isContentEditable);
+    const meta = e.ctrlKey || e.metaKey;
+
+    if (meta && e.key.toLowerCase() === 'r' && state.currentLog) {
+        e.preventDefault();
+        sendToRepeater(state.currentLog);
+        return;
+    }
+    if (meta && e.key.toLowerCase() === 'i' && state.currentLog) {
+        e.preventDefault();
+        sendToIntruder(state.currentLog);
+        return;
+    }
+    if (meta && e.key.toLowerCase() === 'f') {
+        const search = dom.historySearch;
+        if (search) { e.preventDefault(); search.focus(); }
+        return;
+    }
+    if (typing) return;
+    if (e.key === 'j' || e.key === 'k') {
+        const items = Array.from(dom.requestList?.querySelectorAll('.request-item') || []).filter(x => x.style.display !== 'none');
+        if (!items.length) return;
+        let idx = items.findIndex(x => x.classList.contains('request-item--active'));
+        if (idx < 0) idx = 0;
+        else idx = e.key === 'j' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
+        items[idx].click();
+        items[idx].scrollIntoView({ block: 'nearest' });
+    }
+});
+
+// ── Regex toggle on history search ───────────────────────────────
+let historySearchIsRegex = false;
+function _wireHistorySearchRegexToggle() {
+    if (!dom.historySearch || dom.historySearch.parentElement.querySelector('#history-regex-toggle')) return;
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#aaa;margin-left:6px;';
+    lbl.innerHTML = `<input type="checkbox" id="history-regex-toggle"> regex`;
+    dom.historySearch.parentElement.appendChild(lbl);
+    lbl.querySelector('input').addEventListener('change', (e) => {
+        historySearchIsRegex = e.target.checked;
+        updateAllHistoryFilters();
+    });
+}
+setTimeout(_wireHistorySearchRegexToggle, 0);
+
+// Override the search behavior to support regex when toggled.
+const _origUpdateAllHistoryFilters = updateAllHistoryFilters;
+updateAllHistoryFilters = function () {
+    if (!historySearchIsRegex) return _origUpdateAllHistoryFilters();
+    const hostFilter = (dom.historyFilterHost?.value || '').toLowerCase();
+    const methodFilter = dom.historyFilterMethod?.value || '';
+    const statusFilter = dom.historyFilterStatus?.value || '';
+    const raw = dom.historySearch?.value || '';
+    let re = null;
+    try { re = raw ? new RegExp(raw, 'i') : null; } catch (e) { re = null; }
+    $$('.request-item').forEach(el => {
+        const method = el.querySelector('.req-method')?.textContent || '';
+        const url = el.querySelector('.req-url')?.title || '';
+        const status = el.querySelector('.req-status')?.textContent || '';
+        const sc = parseInt(status) || 0;
+        let show = true;
+        if (hostFilter && !url.toLowerCase().includes(hostFilter)) show = false;
+        if (methodFilter && method !== methodFilter) show = false;
+        if (statusFilter) {
+            if (statusFilter === '2xx' && (sc < 200 || sc >= 300)) show = false;
+            else if (statusFilter === '3xx' && (sc < 300 || sc >= 400)) show = false;
+            else if (statusFilter === '4xx' && (sc < 400 || sc >= 500)) show = false;
+            else if (statusFilter === '5xx' && (sc < 500 || sc >= 600)) show = false;
+        }
+        if (re && !re.test(url)) show = false;
+        el.style.display = show ? 'flex' : 'none';
+    });
+};
 
 $('#btn-close-detail').addEventListener('click', () => {
     dom.requestDetail.style.display = 'none';
@@ -747,6 +906,99 @@ $('#btn-send-to-repeater').addEventListener('click', () => {
 $('#btn-send-to-intruder').addEventListener('click', () => {
     if (!state.currentLog) return;
     sendToIntruder(state.currentLog);
+});
+
+// ── Site map ─────────────────────────────────────────────────────
+document.getElementById('btn-sitemap')?.addEventListener('click', async () => {
+    const panel = document.getElementById('sitemap-panel');
+    const list = document.getElementById('request-list');
+    if (!panel) return;
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        if (list) list.style.display = '';
+        return;
+    }
+    if (!state.sessionId) {
+        alert('No active session.');
+        return;
+    }
+    try {
+        const data = await apiRequest('GET', `/api/sitemap?session_id=${state.sessionId}`);
+        panel.innerHTML = '';
+        if (!(data.hosts || []).length) {
+            panel.innerHTML = '<div class="empty-state"><span class="empty-state__text">No traffic yet.</span></div>';
+        } else {
+            for (const host of data.hosts) {
+                const hostDiv = document.createElement('div');
+                hostDiv.className = 'sitemap-host';
+                hostDiv.innerHTML = `
+                    <div>
+                        <span class="sitemap-host__name">▾ ${escHtml(host.host)}</span>
+                        <span class="sitemap-host__count">${host.count} req</span>
+                    </div>
+                `;
+                const epContainer = document.createElement('div');
+                let expanded = true;
+                for (const ep of host.endpoints) {
+                    const epDiv = document.createElement('div');
+                    epDiv.className = 'sitemap-endpoint';
+                    const methods = Object.entries(ep.methods).map(([m, c]) => `${m}×${c}`).join(' ');
+                    const statuses = Object.entries(ep.statuses || {}).map(([s, c]) => {
+                        const cls = getStatusClass(parseInt(s) || 0);
+                        return `<span class="sitemap-endpoint__badge ${cls}">${s}×${c}</span>`;
+                    }).join(' ');
+                    epDiv.innerHTML = `
+                        <span class="sitemap-endpoint__path" title="${escHtml(ep.path)}">${escHtml(ep.path)}</span>
+                        <span class="sitemap-endpoint__badge">${methods}</span>
+                        ${statuses}
+                    `;
+                    epContainer.appendChild(epDiv);
+                }
+                hostDiv.appendChild(epContainer);
+                hostDiv.querySelector('.sitemap-host__name').addEventListener('click', () => {
+                    expanded = !expanded;
+                    epContainer.style.display = expanded ? 'block' : 'none';
+                    hostDiv.querySelector('.sitemap-host__name').textContent = `${expanded ? '▾' : '▸'} ${host.host}`;
+                });
+                panel.appendChild(hostDiv);
+            }
+        }
+        if (list) list.style.display = 'none';
+        panel.style.display = 'block';
+    } catch (e) {
+        alert('Sitemap failed: ' + e.message);
+    }
+});
+
+// HAR export
+document.getElementById('btn-export-har')?.addEventListener('click', async () => {
+    if (!state.sessionId) { alert('No active session.'); return; }
+    try {
+        const data = await apiRequest('GET', `/api/export/traffic.har?session_id=${state.sessionId}`);
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${state.sessionName || 'greytab'}-${new Date().toISOString().slice(0, 10)}.har`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) { alert('HAR export failed: ' + e.message); }
+});
+
+// Findings report (HTML)
+document.getElementById('btn-export-findings')?.addEventListener('click', async () => {
+    if (!state.sessionId) { alert('No active session.'); return; }
+    try {
+        const res = await fetch(`http://127.0.0.1:8443/api/export/findings.html?session_id=${state.sessionId}`);
+        const html = await res.text();
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${state.sessionName || 'greytab'}-report.html`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) { alert('Report export failed: ' + e.message); }
 });
 
 $('#btn-send-to-tool').addEventListener('click', async () => {

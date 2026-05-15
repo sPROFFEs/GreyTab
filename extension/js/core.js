@@ -483,7 +483,7 @@ $$('.detail-tab[data-detail]').forEach((tab) => {
     });
 });
 
-// Repeater response tabs (Raw/Render)
+// Repeater response tabs (Raw/Render/Diff)
 $$('.detail-tab[data-repeater-res]').forEach((tab) => {
     tab.addEventListener('click', () => {
         tab.parentElement.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('detail-tab--active'));
@@ -491,8 +491,51 @@ $$('.detail-tab[data-repeater-res]').forEach((tab) => {
         const which = tab.dataset.repeaterRes;
         dom.repeaterResRaw.style.display = which === 'raw' ? 'block' : 'none';
         dom.repeaterResRender.style.display = which === 'render' ? 'block' : 'none';
+        const diffEl = document.getElementById('repeater-res-diff');
+        if (diffEl) {
+            diffEl.style.display = which === 'diff' ? 'block' : 'none';
+            if (which === 'diff') renderRepeaterDiff();
+        }
     });
 });
+
+// Simple line-based diff renderer for two response_raw strings.
+function lineDiff(a, b) {
+    const aLines = (a || '').split('\n');
+    const bLines = (b || '').split('\n');
+    const n = aLines.length, m = bLines.length;
+    // LCS DP — bounded to avoid huge cost
+    if (n > 4000 || m > 4000) {
+        return aLines.map((l, i) => `  ${l}`).join('\n') + '\n--- B ---\n' + bLines.join('\n');
+    }
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            dp[i][j] = aLines[i] === bLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    const out = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+        if (aLines[i] === bLines[j]) { out.push('  ' + aLines[i]); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push('- ' + aLines[i]); i++; }
+        else { out.push('+ ' + bLines[j]); j++; }
+    }
+    while (i < n) { out.push('- ' + aLines[i++]); }
+    while (j < m) { out.push('+ ' + bLines[j++]); }
+    return out.join('\n');
+}
+
+function renderRepeaterDiff() {
+    const tab = (typeof getActiveRepeaterTab === 'function') ? getActiveRepeaterTab() : null;
+    const diffEl = document.getElementById('repeater-res-diff');
+    if (!diffEl || !tab) return;
+    if (!tab.prev_response_raw) {
+        diffEl.textContent = 'No previous response yet — send the request twice to compare.';
+        return;
+    }
+    diffEl.textContent = lineDiff(tab.prev_response_raw, tab.response_raw || '');
+}
 
 $$('.detail-tab[data-scanner-view]').forEach((tab) => {
     tab.addEventListener('click', () => {
