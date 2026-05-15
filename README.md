@@ -59,14 +59,48 @@ Chrome Extension (Side Panel)  <->  FastAPI Backend  <->  System Tools
 
 ## Features
 
-- **Intercepting Proxy**: All browser traffic passes through mitmproxy, logged and analyzable
-- **Tool Execution**: Run ffuf, sqlmap, xsser, nuclei, etc. directly from the browser panel
-- **Real-time Output**: Tool output streams live to the extension via WebSocket
-- **Session Management**: Organize audits into sessions with scope management
-- **Request Inspector**: Click any request to see full headers and body
-- **Security Findings**: Track and document findings during the audit
-- **Custom Scripts**: Add your own `.py`, `.sh`, `.rb` scripts to `scripts/`
-- **Wordlist Management**: Place wordlists in `wordlists/` for fuzzing tools
+### Traffic & inspection
+- **Intercepting Proxy** — all browser traffic flows through mitmproxy, logged and analyzable
+- **WebSocket logging** — every WS frame is captured into the session DB
+- **Match & Replace rules** — regex rules applied inline by the proxy (request or response, header/body/url/method/status), with optional host filter
+- **Site map view** — host → path tree built live from logged traffic
+- **History overlay** — per-row highlight and comment, persisted in SQLite
+
+### Active testing
+- **Auto Scanner** — XSS, SQLi, path traversal, LFI, open redirect, SSTI, CMDi, CRLF, SSRF, CORS, and OAST; each family lives in its own module under `core/detectors/`
+- **Scan from a captured request** — right-click any History row, or hit the ⚡ icon, to run the scanner on that exact request without crawling
+- **Repeater** — multi-tab raw HTTP editor with response render, **line-diff** between consecutive sends, and one-click "Explain"/"Explain Diff" via the AI hook
+- **Intruder** — Sniper, Battering Ram, **Pitchfork (zip)**, and **Cluster Bomb (cartesian)** attack modes; payload-file upload; grep-extract regex column that surfaces a captured value per row
+- **Race-condition tester** — fire N parallel requests and inspect the timeline/status/length distribution
+
+### Identity & sessions
+- **Login macros** — record a sequence of requests with regex/header extraction, replay before each scan, surface captured tokens
+- **Token watcher** — auto-capture access tokens from `Set-Cookie` or JSON response bodies and inject them as a header on subsequent requests
+- **JWT inspector** — JWTs in any logged request/response surface as a chip; one click decodes; backend endpoint can re-sign HS256 or strip to `alg=none` for testing
+- **GraphQL detection** — requests are flagged in real time; `POST /api/graphql/introspect` fetches the schema
+
+### Tools & extensibility
+- **Tool Execution** — run ffuf, sqlmap, xsser, nuclei, nikto, whatweb, etc. directly from the side panel
+- **Custom Tools** — add your own commands through the Options tab; persisted in `data/custom_tools.json`
+- **Custom Scripts** — drop `.py`/`.sh`/`.rb`/`.pl` into `scripts/`
+- **Wordlist Management** — place wordlists in `wordlists/`; Intruder & ffuf pick them up
+
+### Reporting
+- **Exports** — `findings.html`, `findings.csv`, `findings.md`, and full HAR 1.2 traffic dump
+- **Session save/load** — `.pbx` project files capture history, repeater tabs, intruder state, and scanner output
+
+### AI integration (optional)
+Configure under Settings → AI Agent. Supported providers: OpenAI, Anthropic, Google Gemini, Ollama, or any custom endpoint.
+- **Finding triage** — verdict + confidence + follow-up tests for each scanner finding
+- **Explain request** — plain-English summary of any captured exchange
+- **Suggest payloads** — feeds tailored payloads straight into Intruder
+- **Explain diff** — narrate the difference between two Repeater responses
+
+### Keyboard shortcuts
+- `Ctrl+R` → send selected History row to Repeater
+- `Ctrl+I` → send to Intruder
+- `Ctrl+F` → focus History search (toggle "regex" for full regex matching)
+- `j` / `k` → move selection up/down in History
 
 ## Supported Tools
 
@@ -77,28 +111,47 @@ Any system command can be executed via the "Raw Command" mode.
 ## Directory Structure
 
 ```text
-browser/
+GreyTab/
 ├── launcher.py              # Main entry point
 ├── install.sh               # Installation script
+├── requirements.txt         # Pinned Python deps
 ├── core/
+│   ├── __init__.py          # Single source of truth for __version__
 │   ├── api.py               # FastAPI backend
 │   ├── config.py            # Configuration
-│   ├── logger.py            # SQLite logger
-│   ├── proxy.py             # mitmproxy addon
-│   └── tools.py             # Tool runner
+│   ├── logger.py            # SQLite logger (http_log, ws_log, findings, etc.)
+│   ├── proxy.py             # mitmproxy addon (request/response/ws hooks)
+│   ├── tools.py             # Subprocess tool runner
+│   ├── scanner.py           # Scanner orchestration / crawler
+│   ├── ai_agent.py          # Multi-provider AI client
+│   ├── extras.py            # Rules, JWT, GraphQL, exports, macros
+│   └── detectors/           # One module per vuln family (xss, sqli, ssrf…)
 ├── extension/
-│   ├── manifest.json        # Chrome extension manifest
-│   ├── background.js        # Service worker
+│   ├── manifest.json
+│   ├── background.js        # Service worker (WS client, API proxy)
 │   ├── sidepanel.html       # Panel UI
-│   ├── sidepanel.css        # Panel styles
-│   └── sidepanel.js         # Panel logic
-├── ungoogled-chromium-*/    # Portable chromium (Download required)
+│   ├── sidepanel.css
+│   └── js/                  # core, history, repeater, tools, proxy, decoder…
+├── tests/                   # pytest smoke suite (run with `pytest`)
+├── ungoogled-chromium-*/    # Portable chromium (download required)
 ├── profile/                 # Chrome user profile
 ├── sessions/                # Audit session data
-├── logs/                    # SQLite databases
+├── logs/                    # SQLite database
+├── data/                    # User config, rules, macros, custom tools
 ├── scripts/                 # Custom scripts
 └── wordlists/               # Fuzzing wordlists
 ```
+
+## Running the tests
+
+```bash
+pip install -r requirements.txt pytest pytest-asyncio
+pytest
+```
+
+The suite stands up the FastAPI app in-process (no real proxy thread, no
+real socket) and exercises the new endpoints — rules, JWT, macros, exports,
+sitemap, race tester, log metadata.
 
 ## Requirements
 

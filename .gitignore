@@ -85,3 +85,7 @@ desktop.ini
 *.tmp
 *.orig
 node_modules/
+
+# ── Tests ──
+tests/_runtime/
+.pytest_cache/

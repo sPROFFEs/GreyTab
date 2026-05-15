@@ -515,7 +515,7 @@ def http_logs_to_har(session: Dict[str, Any], logs: List[Dict[str, Any]]) -> Dic
     return {
         "log": {
             "version": "1.2",
-            "creator": {"name": "GreyTab", "version": "0.2.0"},
+            "creator": {"name": "GreyTab", "version": __import__("core").__version__},
             "pages": [],
             "entries": entries,
             "_comment": f"Session: {(session or {}).get('name', '')}",

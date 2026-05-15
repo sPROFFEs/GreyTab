@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PentestBrowser - Main Launcher
+GreyTab - Main Launcher
 Entry point that orchestrates all components:
 1. Starts the FastAPI backend (which starts the mitmproxy)
 2. Launches ungoogled-chromium with proper flags
@@ -18,6 +18,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from core import __version__ as APP_VERSION
 from core.config import (
     get_config, CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR,
     SESSIONS_DIR, SCRIPTS_DIR, WORDLISTS_DIR, CA_CERT_DIR, LOGS_DIR,
@@ -32,15 +33,15 @@ from rich.text import Text
 console = Console()
 
 
-BANNER = r"""
-   ██████╗ ██████╗ ███████╗██╗   ██╗████████╗ █████╗ ██████╗ 
+BANNER = rf"""
+   ██████╗ ██████╗ ███████╗██╗   ██╗████████╗ █████╗ ██████╗
   ██╔════╝ ██╔══██╗██╔════╝╚██╗ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗
   ██║  ███╗██████╔╝█████╗   ╚████╔╝    ██║   ███████║██████╔╝
   ██║   ██║██╔══██╗██╔══╝    ╚██╔╝     ██║   ██╔══██║██╔══██╗
   ╚██████╔╝██║  ██║███████╗   ██║      ██║   ██║  ██║██████╔╝
-   ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═════╝ 
+   ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═════╝
 
-            🔒 GreyTab v0.2.0
+            🔒 GreyTab v{APP_VERSION}
             Advanced Web Auditing Suite
 """
 

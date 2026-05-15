@@ -1,3 +1,3 @@
-# PentestBrowser Core Package
-__version__ = "0.1.0"
-__app_name__ = "PentestBrowser"
+# GreyTab Core Package
+__version__ = "0.2.0"
+__app_name__ = "GreyTab"

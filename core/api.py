@@ -45,11 +45,61 @@ proxy_manager = ProxyManager(
 # Active WebSocket connections
 ws_connections: Set[WebSocket] = set()
 
+# Captured during lifespan startup so proxy-thread callbacks can hand work
+# back to the running uvicorn loop without relying on the deprecated
+# asyncio.get_event_loop() (which raises in fresh threads on Py 3.12+).
+_main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _schedule_on_main_loop(coro):
+    """Submit a coroutine to the main loop from any thread."""
+    loop = _main_loop
+    if loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(coro, loop)
+    except RuntimeError:
+        # Loop already shut down — silently drop.
+        pass
+
 # Current active session
 current_session_id: Optional[str] = None
 
 # Scanner engine
-scanner = ScannerEngine(broadcast_fn=None)  # Broadcast set after function defined
+async def _persist_scanner_finding(finding):
+    """Save a scanner finding into the findings table of the active session."""
+    if not current_session_id:
+        return
+    try:
+        ev_parts = []
+        if getattr(finding, "payload", ""):
+            ev_parts.append(f"payload: {finding.payload}")
+        if getattr(finding, "request_raw", ""):
+            ev_parts.append("---\nREQUEST:\n" + str(finding.request_raw)[:2000])
+        if getattr(finding, "response_raw", ""):
+            ev_parts.append("---\nRESPONSE:\n" + str(finding.response_raw)[:2000])
+        evidence = "\n".join(ev_parts)
+        title = f"{(finding.vuln_type or '').upper()} — {finding.parameter or finding.url}"
+        description = str(getattr(finding, "evidence", "") or "")
+        if getattr(finding, "ai_analysis", None):
+            ai = finding.ai_analysis or {}
+            description += f"\n\nAI verdict: {ai.get('verdict','')} (confidence {ai.get('confidence','')})"
+            if ai.get("reasoning"):
+                description += f"\nReasoning: {ai['reasoning']}"
+        await db.add_finding(
+            session_id=current_session_id,
+            title=title[:240],
+            severity=str(finding.severity or "info"),
+            category=str(finding.vuln_type or ""),
+            description=description[:4000],
+            evidence=evidence[:8000],
+            source_tool="scanner",
+        )
+    except Exception as e:
+        print(f"[API] failed to persist scanner finding: {e}")
+
+
+scanner = ScannerEngine(broadcast_fn=None, finding_persistor=_persist_scanner_finding)  # Broadcast set after function defined
 ai_agent = AIAgentClient()
 oast_hits: Dict[str, dict] = {}
 ai_review_cache: Dict[str, dict] = {}
@@ -147,34 +197,22 @@ def _record_oast_hit(token: str, request: Request):
 
 def on_proxy_flow(flow):
     """Called by mitmproxy addon when a flow completes."""
-    asyncio.get_event_loop().call_soon_threadsafe(
-        asyncio.create_task,
-        _handle_flow(flow)
-    )
+    _schedule_on_main_loop(_handle_flow(flow))
+
 
 def on_interception(flow_data):
     """Called by mitmproxy addon when a request is intercepted."""
-    asyncio.get_event_loop().call_soon_threadsafe(
-        asyncio.create_task,
-        broadcast("request_intercepted", flow_data)
-    )
+    _schedule_on_main_loop(broadcast("request_intercepted", flow_data))
+
 
 def on_response_interception(flow_data):
     """Called by mitmproxy addon when a response is intercepted."""
-    asyncio.get_event_loop().call_soon_threadsafe(
-        asyncio.create_task,
-        broadcast("response_intercepted", flow_data)
-    )
+    _schedule_on_main_loop(broadcast("response_intercepted", flow_data))
 
 
 def on_ws_frame(payload):
     """Called when a websocket frame is observed."""
-    try:
-        asyncio.get_event_loop().call_soon_threadsafe(
-            asyncio.create_task, _handle_ws_frame(payload)
-        )
-    except Exception:
-        pass
+    _schedule_on_main_loop(_handle_ws_frame(payload))
 
 
 def on_token_captured(payload):
@@ -185,28 +223,19 @@ def on_token_captured(payload):
         cfg["captured_at"] = time.time()
         cfg["captured_source"] = payload.get("source", "")
         gx.save_token_watch(cfg)
-        asyncio.get_event_loop().call_soon_threadsafe(
-            asyncio.create_task,
-            broadcast("token_captured", {
-                "source": payload.get("source", ""),
-                "url": payload.get("url", ""),
-                "preview": (payload.get("token", "") or "")[:24] + ("…" if len(payload.get("token", "") or "") > 24 else ""),
-                "captured_at": cfg["captured_at"],
-            })
-        )
+        _schedule_on_main_loop(broadcast("token_captured", {
+            "source": payload.get("source", ""),
+            "url": payload.get("url", ""),
+            "preview": (payload.get("token", "") or "")[:24] + ("…" if len(payload.get("token", "") or "") > 24 else ""),
+            "captured_at": cfg["captured_at"],
+        }))
     except Exception as e:
         print(f"[API] token capture handler error: {e}")
 
 
 def on_graphql_seen(payload):
     """Called when a GraphQL-looking request flows through the proxy."""
-    try:
-        asyncio.get_event_loop().call_soon_threadsafe(
-            asyncio.create_task,
-            broadcast("graphql_request", payload)
-        )
-    except Exception:
-        pass
+    _schedule_on_main_loop(broadcast("graphql_request", payload))
 
 
 async def _handle_ws_frame(payload: dict):
@@ -272,6 +301,8 @@ async def _handle_flow(flow):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown."""
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
     load_ai_runtime_state()
     await db.connect()
     proxy_manager.set_callbacks(on_proxy_flow, on_interception, on_response_interception)
@@ -288,13 +319,16 @@ async def lifespan(app: FastAPI):
     persist_ai_runtime_state()
     await ai_agent.close()
     await db.close()
+    _main_loop = None
 
 
 # ── FastAPI App ─────────────────────────────────────────────────
 
+from core import __version__ as APP_VERSION
+
 app = FastAPI(
-    title="PentestBrowser API",
-    version="0.1.0",
+    title="GreyTab API",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -1070,7 +1104,7 @@ async def health():
 
     return {
         "status": "ok",
-        "version": "0.2.0",
+        "version": APP_VERSION,
         "session_id": current_session_id,
         "proxy_running": proxy_manager.is_running,
         "proxy_port": config.proxy.port,
