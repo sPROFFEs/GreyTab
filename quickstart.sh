@@ -18,7 +18,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/sPROFFEs/GreyTab.git"
-BIN_BASE="https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable"
+API_URL="https://api.github.com/repos/ungoogled-software/ungoogled-chromium-portablelinux/releases/latest"
 
 err()  { printf '\033[31m✗\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
@@ -69,46 +69,50 @@ has_chromium() {
 if has_chromium; then
     ok "ungoogled-chromium already present — skipping download."
 else
-    # ── detect architecture → release subgroup ──────────────────────────
+    # ── detect architecture → asset suffix ───────────────────────────────
     case "$(uname -m)" in
-        x86_64|amd64) SUBDIR="64bit" ;;
-        aarch64|arm64) SUBDIR="arm64" ;;
+        x86_64|amd64) ARCH_TAG="x86_64" ;;
+        aarch64|arm64) ARCH_TAG="arm64" ;;
         *)
             err "Unsupported architecture: $(uname -m)."
             err "Manually download a build from:"
-            err "  $BIN_BASE/"
+            err "  https://ungoogled-software.github.io/ungoogled-chromium-binaries/releases/linux_portable/"
             exit 1
             ;;
     esac
-    info "Architecture: $(uname -m) → linux_portable/$SUBDIR"
+    info "Architecture: $(uname -m) → $ARCH_TAG"
 
-    # ── resolve the latest published version ───────────────────────────
+    # ── resolve latest release via GitHub API (JSON, reliable) ──────────
     info "Querying latest ungoogled-chromium release..."
-    LISTING="$(curl -fsSL "$BIN_BASE/$SUBDIR/")"
-    VERSION="$(printf '%s\n' "$LISTING" \
-        | grep -oE "$BIN_BASE/$SUBDIR/[0-9][^\"]*" \
-        | grep -oE "[0-9][0-9.]+-[0-9]+" \
-        | head -1)"
+    API_JSON="$(curl -fsSL -H "Accept: application/vnd.github+json" "$API_URL")"
+
+    VERSION="$(printf '%s\n' "$API_JSON" \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || true)"
 
     if [[ -z "${VERSION:-}" ]]; then
-        err "Could not determine the latest version from the release listing."
-        err "Check $BIN_BASE/$SUBDIR/ and download a build manually."
+        err "Could not read the latest release tag from the GitHub API."
+        err "API URL: $API_URL"
         exit 1
     fi
     ok "Latest version: $VERSION"
 
-    # ── fetch the exact tarball download URL from the version page ───────
-    VERSION_PAGE="$(curl -fsSL "$BIN_BASE/$SUBDIR/$VERSION")"
-    TARBALL_URL="$(printf '%s\n' "$VERSION_PAGE" \
-        | grep -oE 'https://github\.com/[^"]+\.tar\.xz' \
-        | head -1)"
+    # ── pick the tarball whose name ends with <ARCH_TAG>_linux.tar.xz ─────
+    TARBALL_URL="$(printf '%s\n' "$API_JSON" \
+        | python3 -c "
+import sys, json
+tag='${ARCH_TAG}'
+for a in json.load(sys.stdin).get('assets', []):
+    n=a.get('name','')
+    if n.endswith(tag+'_linux.tar.xz'):
+        print(a['browser_download_url']); break
+" 2>/dev/null || true)"
 
     if [[ -z "${TARBALL_URL:-}" ]]; then
-        err "Could not find the .tar.xz download link for version $VERSION."
+        err "No .tar.xz asset found for arch '$ARCH_TAG' in release $VERSION."
         exit 1
     fi
 
-    ARCHIVE="$PROJECT_ROOT/ungoogled-chromium-$VERSION-x86_64_linux.tar.xz"
+    ARCHIVE="$PROJECT_ROOT/ungoogled-chromium-$VERSION-${ARCH_TAG}_linux.tar.xz"
     info "Downloading: $TARBALL_URL"
     curl -fSL -o "$ARCHIVE" "$TARBALL_URL"
     ok "Downloaded $(du -h "$ARCHIVE" | cut -f1)."
