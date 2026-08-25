@@ -20,7 +20,11 @@ from urllib.parse import quote, urlencode, urljoin, urlparse, urlunparse, parse_
 
 import httpx
 
-from core.scanner import ScanFinding, ScanTestEntry
+from core.scanner import (
+    ScanFinding,
+    ScanTestEntry,
+    SSTI_PAYLOADS,
+)
 
 
 async def run(
@@ -40,7 +44,7 @@ async def run(
 
         payload = entry["payload"]
         expected = entry["expect"]
-        engine = entry["engine"]
+        tpl_engine = entry["engine"]
 
         resp, elapsed, _, req_raw, res_raw = await engine._inject_param(
             client, parsed, param_name, payload, method=method,
@@ -86,7 +90,7 @@ async def run(
             parameter=param_name, payload=payload, stage="probe",
             outcome="signal", success=True,
             elapsed_s=float(elapsed or 0.0), status_code=resp.status_code,
-            evidence=f"Template engine '{engine}' computed '{expected}' from '{payload}'",
+            evidence=f"Template engine '{tpl_engine}' computed '{expected}' from '{payload}'",
             request_raw=req_raw, response_raw=res_raw,
         )
         await engine._record_test_entry(
@@ -104,7 +108,7 @@ async def run(
             await engine._add_finding(
                 ScanFinding(
                     url=url, vuln_type="ssti", severity="critical",
-                    evidence=f"Confirmed SSTI via {engine}: '{payload}' → '{expected}', '{confirm_payload}' → '{confirm_expected}'",
+                    evidence=f"Confirmed SSTI via {tpl_engine}: '{payload}' → '{expected}', '{confirm_payload}' → '{confirm_expected}'",
                     payload=payload, parameter=param_name,
                     request_raw=req2 or req_raw, response_raw=res2 or res_raw,
                     deterministic_confirmed=True, insertion_point=insertion_kind,

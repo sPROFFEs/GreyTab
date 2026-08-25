@@ -463,6 +463,10 @@ function activateTab(tabId) {
 
     if (tabId === 'requests') loadHttpHistory();
     if (tabId === 'tools') loadTools();
+    if (tabId === 'bookmarklets') {
+        if (typeof loadBookmarklets === 'function') loadBookmarklets();
+        if (typeof updateBookmarkletTargetInfo === 'function') updateBookmarkletTargetInfo();
+    }
     if (tabId === 'settings') loadSettings();
 }
 

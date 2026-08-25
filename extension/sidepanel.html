@@ -153,6 +153,13 @@
         </svg>
         <span class="tab__label">Decoder</span>
       </button>
+      <button class="tab" data-tab="bookmarklets">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="tab__label">Bookmarklets</span>
+      </button>
       <button class="tab" data-tab="requests">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -763,6 +770,47 @@
           <span class="text-muted" style="font-size:0.75rem;">Chain: </span>
           <span id="decoder-chain-log" class="decoder-chain-log">—</span>
         </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- BOOKMARKLETS TAB                          -->
+    <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-bookmarklets">
+      <div class="section">
+        <div class="section__header">
+          <h3>Bookmarklets</h3>
+          <button class="btn btn--ghost btn--sm" id="btn-bm-refresh-tab" title="Refresh current tab info">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            Refresh
+          </button>
+        </div>
+        <div class="form-hint" id="bookmarklet-target-info">
+          Click a bookmarklet to run it on the active browser tab.
+        </div>
+      </div>
+      <div class="section" style="flex:1; overflow-y:auto;">
+        <div id="bookmarklets-list" class="bookmarklets-list"></div>
+      </div>
+      <div class="section">
+        <div class="section__header"><h3>Custom Bookmarklet</h3></div>
+        <div class="form-group">
+          <label class="form-label">Name</label>
+          <input type="text" id="bm-custom-name" class="input input--sm" placeholder="My Bookmarklet" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">JavaScript (without <code>javascript:</code> prefix)</label>
+          <textarea id="bm-custom-code" class="input input--textarea input--code" rows="4"
+            placeholder="(function(){ /* ... */ })();"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn--primary btn--sm" id="btn-bm-save-custom">Save</button>
+          <button class="btn btn--ghost btn--sm" id="btn-bm-run-custom">Run on Active Tab</button>
+        </div>
+        <div class="settings-hint" id="bm-custom-status"></div>
       </div>
     </div>
 
@@ -1413,6 +1461,7 @@
   <script src="js/proxy.js"></script>
   <script src="js/history.js"></script>
   <script src="js/decoder.js"></script>
+  <script src="js/bookmarklets.js"></script>
   <script src="js/tools.js"></script>
   <script src="js/init.js"></script>
 </body>

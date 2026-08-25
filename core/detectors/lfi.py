@@ -20,7 +20,12 @@ from urllib.parse import quote, urlencode, urljoin, urlparse, urlunparse, parse_
 
 import httpx
 
-from core.scanner import ScanFinding, ScanTestEntry
+from core.scanner import (
+    ScanFinding,
+    ScanTestEntry,
+    LFI_PAYLOADS,
+    LFI_SIGNATURES,
+)
 
 
 async def run(

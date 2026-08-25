@@ -3136,3 +3136,34 @@ body.scanner-detached #tab-settings {
 .collapsible-section[open] .collapsible-section__arrow {
   transform: rotate(180deg);
 }
+
+/* ── Bookmarklets ─────────────────────────────────────────────────── */
+.bookmarklets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bookmarklets-list .section__header h4 {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bookmarklets-list .settings-tool-card__desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.bookmarklets-list .bm-source-link {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bookmarklets-list .bm-source-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}

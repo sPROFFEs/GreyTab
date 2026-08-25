@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import json
 import random
 import re
@@ -20,7 +21,7 @@ from urllib.parse import quote, urlencode, urljoin, urlparse, urlunparse, parse_
 
 import httpx
 
-from core.scanner import ScanFinding, ScanTestEntry
+from core.scanner import ScanFinding, ScanTestEntry, XSS_PAYLOAD_TEMPLATES
 
 
 async def run(

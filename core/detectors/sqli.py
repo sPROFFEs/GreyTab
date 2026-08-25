@@ -20,7 +20,13 @@ from urllib.parse import quote, urlencode, urljoin, urlparse, urlunparse, parse_
 
 import httpx
 
-from core.scanner import ScanFinding, ScanTestEntry
+from core.scanner import (
+    ScanFinding,
+    ScanTestEntry,
+    SQLI_ERROR_PAYLOADS,
+    SQLI_ERROR_PATTERNS,
+    SQLI_TIME_PAYLOADS,
+)
 
 
 async def run(

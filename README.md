@@ -6,7 +6,27 @@
 
 A pentester's browser that combines an intercepting proxy, system tool execution, and real-time traffic analysis — all controlled from a Chrome side panel extension.
 
-## Download Browser
+## Quick Install (one-liner)
+
+For Linux, a single command clones the repo, auto-downloads the latest `ungoogled-chromium` portable build for your architecture, extracts it into the project root, and runs the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/main/quickstart.sh | bash
+```
+
+This runs `quickstart.sh` (see the [script](quickstart.sh) for what it does). It will prompt for `sudo` when `install.sh` installs the `greytab` command into `/usr/local/bin`.
+
+> ⚠️ **Pipe-to-shell caveat:** the one-liner above downloads and executes a script directly. If you prefer to inspect it first, download it manually:
+>
+> ```bash
+> curl -fsSL -o quickstart.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/main/quickstart.sh
+> less quickstart.sh          # review it
+> bash quickstart.sh          # run it
+> ```
+
+## Manual installation
+
+### Download Browser
 
 To use GreyTab, you need to download the appropriate browser binaries and extract them to the project directory.
 
@@ -14,7 +34,7 @@ To use GreyTab, you need to download the appropriate browser binaries and extrac
 
 Extract the downloaded archive so that the `ungoogled-chromium` folder sits in the root of the project.
 
-## Installation
+### Installer
 
 GreyTab includes an installer script for Linux systems that sets up an isolated Python environment and creates desktop shortcuts.
 
@@ -84,6 +104,7 @@ Chrome Extension (Side Panel)  <->  FastAPI Backend  <->  System Tools
 - **Custom Tools** — add your own commands through the Options tab; persisted in `data/custom_tools.json`
 - **Custom Scripts** — drop `.py`/`.sh`/`.rb`/`.pl` into `scripts/`
 - **Wordlist Management** — place wordlists in `wordlists/`; Intruder & ffuf pick them up
+- **Bookmarklets** — a built-in set of in-page audit helpers (Smart Reveal Mode — a toggleable reveal that restores on second run, X-Ray, enable/disable fields, unhide `display:none`, re-enable `pointer-events`, and an all-in-one), OSINT lookup launchers (domain search, US name search, US phone search — sourced from [My OSINT Bookmarklets](https://tools.myosint.training/myosint_bookmarklets.html)), plus custom bookmarklets you can add yourself. Run them on the active browser tab from the **Bookmarklets** tab; custom ones persist via `chrome.storage.local`
 
 ### Reporting
 - **Exports** — `findings.html`, `findings.csv`, `findings.md`, and full HAR 1.2 traffic dump
@@ -131,7 +152,7 @@ GreyTab/
 │   ├── background.js        # Service worker (WS client, API proxy)
 │   ├── sidepanel.html       # Panel UI
 │   ├── sidepanel.css
-│   └── js/                  # core, history, repeater, tools, proxy, decoder…
+│   └── js/                  # core, history, repeater, tools, proxy, decoder, bookmarklets…
 ├── tests/                   # pytest smoke suite (run with `pytest`)
 ├── ungoogled-chromium-*/    # Portable chromium (download required)
 ├── profile/                 # Chrome user profile
