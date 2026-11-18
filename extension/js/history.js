@@ -1071,7 +1071,7 @@ $('#btn-sitemap').addEventListener('click', async (e) => {
         const description = document.createElement('p');
         description.className = 'history-map-description';
         description.textContent = data.hosts.length
-            ? `${data.total_hosts} hosts in recent traffic. Select a path to view its requests.`
+            ? `${data.total_hosts} ${data.total_hosts === 1 ? 'host' : 'hosts'} in recent traffic. Select a path to view its requests.`
             : 'No traffic captured for this session.';
         panel.append(description);
         for (const host of data.hosts.slice(0, 200)) {

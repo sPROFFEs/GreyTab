@@ -33,6 +33,31 @@ The installer downloads the published release and verifies its SHA-256, installs
 
 [Usage guide](docs/USAGE.md) explains these workflows, keyboard shortcuts and practical limits. Audit only targets for which you have authorization.
 
+## Screenshots
+
+The captures below show GreyTab running against local test data in the pinned Chromium.
+
+**History and Inspector** show recorded traffic, annotation filters, connection details and decoded parameters in one workspace.
+
+![GreyTab History and Inspector in a wide window, with captured traffic, a saved note and repeated query parameters](docs/screenshots/history-inspector.png)
+
+<details>
+<summary>See Repeater, Site Map and the narrow side panel</summary>
+
+**Repeater** displays an editable HTTP request alongside its response, status and elapsed time.
+
+![GreyTab Repeater with a raw HTTP request and a successful JSON response](docs/screenshots/repeater-exchange.png)
+
+**Site Map** groups recorded paths by host. Select a path to jump to its requests in History.
+
+![GreyTab Site Map with a host expanded to show its recorded paths and request counts](docs/screenshots/site-map.png)
+
+**Narrow side panel** stacks History and Inspector so you can keep working alongside the target page.
+
+<img src="docs/screenshots/history-side-panel.png" alt="GreyTab in a 380-pixel panel with History stacked above the Inspector and its note editor" width="380">
+
+</details>
+
 ## Projects and reports
 
 Sessions, requests, WebSocket frames, findings, annotations and tool output are stored locally in SQLite. Saving a `.pbx` project includes up to 50,000 HTTP requests, 5,000 WebSocket frames, findings, tool runs and workspace state. Import creates a new session and remaps request references. Local session data survives upgrades. HAR exports and UI lists have explicit limits documented in the [usage guide](docs/USAGE.md#limits).

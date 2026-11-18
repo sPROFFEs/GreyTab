@@ -156,7 +156,11 @@ async def check_history_workspace(page, target_page, api, output, ok):
     await page.click('#btn-history-reset')
     await page.click('#btn-sitemap')
     await page.locator('#sitemap-panel summary').first.click()
-    await page.get_by_role('button', name='/catalog · 240', exact=True).click()
+    endpoint = page.get_by_role('button', name='/catalog · 240', exact=True)
+    await endpoint.wait_for(state='visible')
+    await page.mouse.move(0, 0)
+    await page.screenshot(path=output / 'history-sitemap-1440.png', clip={'x': 0, 'y': 0, 'width': 1440, 'height': 478})
+    await endpoint.click()
     await wait(page, 'document.querySelector("#history-page-status").textContent.includes("/catalog")')
     assert await page.locator('.request-item').count() == 200
     ok('Page regex handles invalid patterns and Site Map opens endpoint history')
@@ -180,6 +184,12 @@ async def check_history_workspace(page, target_page, api, output, ok):
     await page.click('[data-repeater-res="render"]')
     assert 'method' in await page.locator('#repeater-res-render').get_attribute('srcdoc')
     ok('Repeater paints the selected response view and keeps the draft during a send')
+    await page.evaluate('sendToRepeater({method: "GET", url: "http://127.0.0.1:19443/echo?view=docs"})')
+    await page.click('[data-repeater-res="raw"]')
+    await page.click('#btn-repeater-send')
+    await wait(page, 'document.querySelector("#repeater-status").textContent === "200"')
+    await page.mouse.move(0, 0)
+    await page.screenshot(path=output / 'repeater-exchange-1440.png', clip={'x': 0, 'y': 0, 'width': 1440, 'height': 742})
 
 
 async def capture_views(page, output):
