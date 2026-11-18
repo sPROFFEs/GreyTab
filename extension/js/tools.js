@@ -84,6 +84,8 @@ function showContextMenu(x, y, flowOrLog) {
             Copy as PowerShell
         </div>
         <div class="ctx-menu__separator"></div>
+        <div class="ctx-menu__item" data-action="comment-log">Comment</div>
+        <div class="ctx-menu__item" data-action="highlight-log">Highlight</div>
         <div class="ctx-menu__item" data-action="delete-log">
             <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             Delete Request
@@ -138,6 +140,23 @@ async function handleContextAction(action) {
     const flowId = flow.id;
 
     switch (action) {
+        case 'comment-log':
+        case 'highlight-log': {
+            try {
+                const meta = await apiRequest('GET', `/api/logs/http/${flowId}/meta`);
+                const value = prompt(action === 'comment-log' ? 'Comment:' : 'Highlight: red, orange, yellow, green, blue, purple (empty clears)', action === 'comment-log' ? meta.comment : meta.highlight);
+                if (value === null) return;
+                if (action === 'comment-log') meta.comment = value;
+                else {
+                    if (value && !['red','orange','yellow','green','blue','purple'].includes(value)) throw new Error('Choose one of the listed colors.');
+                    meta.highlight = value;
+                }
+                await apiRequest('POST', `/api/logs/http/${flowId}/meta`, meta);
+                const row = dom.requestList.querySelector(`[data-id="${flowId}"]`);
+                if (row) { row.dataset.highlight = meta.highlight; row.title = meta.comment; }
+            } catch (e) { alert(e.message); }
+            break;
+        }
         case 'view-detail':
             $$('.tab[data-tab="requests"]')[0].click();
             showRequestDetail(flowId);
@@ -168,7 +187,7 @@ async function handleContextAction(action) {
         case 'send-decoder': {
             try {
                 const log = await apiRequest('GET', `/api/logs/http/${flowId}`);
-                const raw = buildRawRequest(log) || log.url || '';
+                const raw = buildRawRequest(log.method, log.url, log.request_headers, log.request_body) || log.url || '';
                 sendToDecoder(raw);
             } catch {
                 sendToDecoder(flow.url || '');
@@ -258,81 +277,26 @@ async function handleContextAction(action) {
     }
 }
 
+function quoteShell(value) { return "'" + String(value).replace(/'/g, "'\\''") + "'"; }
+function exportRequestHeaders(log) {
+    let headers = log.request_headers || log.headers || {};
+    if (typeof headers === 'string') { try { headers = JSON.parse(headers); } catch { headers = {}; } }
+    return Object.fromEntries(Object.entries(headers).filter(([k]) => !['content-length', 'transfer-encoding'].includes(k.toLowerCase())));
+}
 function buildCurlCommand(log) {
-    let cmd = `curl -v`;
-    if (log.method && log.method !== 'GET') {
-        cmd += ` -X ${log.method}`;
-    }
-    // Add headers
-    let headers = log.request_headers;
-    if (typeof headers === 'string') {
-        try { headers = JSON.parse(headers); } catch { headers = {}; }
-    }
-    if (headers) {
-        for (const [k, v] of Object.entries(headers)) {
-            if (!['host', 'content-length'].includes(k.toLowerCase())) {
-                cmd += ` -H '${k}: ${v}'`;
-            }
-        }
-    }
-    const body = log.request_body || log.body;
-    if (body) {
-        cmd += ` -d '${body.replace(/'/g, "'\\''")}'`;
-    }
-    cmd += ` '${log.url}'`;
-    return cmd;
+    let cmd = `curl -v -X ${quoteShell(log.method || 'GET')}`;
+    for (const [key, value] of Object.entries(exportRequestHeaders(log))) cmd += ` -H ${quoteShell(key + ': ' + value)}`;
+    const body = log.request_body ?? log.body;
+    if (body) cmd += ` --data-binary ${quoteShell(body)}`;
+    return cmd + ` ${quoteShell(log.url)}`;
 }
-
-// ── Copy As… format builders ──
-
 function buildPythonRequests(log) {
-    let headers = log.request_headers;
-    if (typeof headers === 'string') { try { headers = JSON.parse(headers); } catch { headers = {}; } }
-    const method = (log.method || 'GET').toLowerCase();
-    const body = log.request_body || log.body || '';
-    let code = `import requests\n\n`;
-    code += `url = "${log.url}"\n`;
-    if (headers && Object.keys(headers).length) {
-        code += `headers = {\n`;
-        for (const [k, v] of Object.entries(headers)) {
-            if (!['host', 'content-length'].includes(k.toLowerCase())) {
-                code += `    "${k}": "${v}",\n`;
-            }
-        }
-        code += `}\n`;
-    } else {
-        code += `headers = {}\n`;
-    }
-    if (body) {
-        code += `data = """${body}"""\n\n`;
-        code += `response = requests.${method}(url, headers=headers, data=data)\n`;
-    } else {
-        code += `\nresponse = requests.${method}(url, headers=headers)\n`;
-    }
-    code += `print(response.status_code)\nprint(response.text)\n`;
-    return code;
+    return `import requests\n\nresponse = requests.request(\n    ${JSON.stringify(log.method || 'GET')},\n    ${JSON.stringify(log.url)},\n    headers=${JSON.stringify(exportRequestHeaders(log), null, 4)},\n    data=${JSON.stringify(log.request_body ?? log.body ?? '')}.encode("utf-8"),\n)\nprint(response.status_code)\nprint(response.text)\n`;
 }
-
 function buildFetchCode(log) {
-    let headers = log.request_headers;
-    if (typeof headers === 'string') { try { headers = JSON.parse(headers); } catch { headers = {}; } }
-    const body = log.request_body || log.body || '';
-    let code = `fetch("${log.url}", {\n`;
-    code += `  method: "${log.method || 'GET'}",\n`;
-    if (headers && Object.keys(headers).length) {
-        code += `  headers: {\n`;
-        for (const [k, v] of Object.entries(headers)) {
-            if (!['host', 'content-length'].includes(k.toLowerCase())) {
-                code += `    "${k}": "${v}",\n`;
-            }
-        }
-        code += `  },\n`;
-    }
-    if (body) {
-        code += `  body: ${JSON.stringify(body)},\n`;
-    }
-    code += `})\n.then(r => r.text())\n.then(console.log)\n.catch(console.error);\n`;
-    return code;
+    const options = {method: log.method || 'GET', headers: exportRequestHeaders(log)};
+    if (!['GET', 'HEAD'].includes(options.method.toUpperCase())) options.body = log.request_body ?? log.body ?? '';
+    return `fetch(${JSON.stringify(log.url)}, ${JSON.stringify(options, null, 2)})\n.then(r => r.text())\n.then(console.log);\n`;
 }
 
 function buildPowerShell(log) {
@@ -926,6 +890,7 @@ dom.btnScannerStart?.addEventListener('click', async () => {
             xss_headless_confirm: xssHeadlessConfirm,
             oast_enabled: oastEnabled,
             oast_base_url: oastBaseUrl,
+            macro_id: $('#scanner-macro')?.value || null,
         });
         setScannerState(true);
         resetScannerPanels();
@@ -1092,6 +1057,8 @@ function addScannerRequestLog(entry) {
       </div>
     `;
     dom.scannerRequestLog.appendChild(row);
+    if (state.scanner.requestLog.length > 2000) state.scanner.requestLog.shift();
+    while (dom.scannerRequestLog.children.length > 500) dom.scannerRequestLog.firstElementChild.remove();
     scheduleWorkspaceSave();
 }
 
@@ -1114,7 +1081,7 @@ function addScannerTestLog(test) {
     }
 
     state.scanner.testLog.push(test);
-    if (state.scanner.testLog.length > 20000) state.scanner.testLog.shift();
+    if (state.scanner.testLog.length > 2000) state.scanner.testLog.shift();
     if (dom.scannerTestCount) dom.scannerTestCount.textContent = `${state.scanner.testLog.length} tests`;
 
     const empty = dom.scannerTestLog.querySelector('.empty-state');
@@ -1162,6 +1129,7 @@ function addScannerTestLog(test) {
         showScannerDetail(pseudoFinding);
     });
     dom.scannerTestLog.appendChild(row);
+    while (dom.scannerTestLog.children.length > 500) dom.scannerTestLog.firstElementChild.remove();
     scheduleWorkspaceSave();
 }
 
@@ -1494,6 +1462,8 @@ function processPassiveScannerFlow(flow) {
 }
 
 function addScannerFinding(finding) {
+    finding = { ...finding, vuln_type: finding.vuln_type || 'manual', severity: finding.severity || 'info',
+        request_raw: finding.request_raw || finding.request || '', response_raw: finding.response_raw || finding.response || '', evidence: finding.evidence || finding.description || '' };
     // Remove empty state
     const empty = dom.scannerFindings.querySelector('.empty-state');
     if (empty) empty.remove();
@@ -1938,7 +1908,6 @@ async function loadSettings() {
         const cfg = await apiRequest('GET', '/api/config');
         const portInput = $('#settings-proxy-port');
         if (portInput) portInput.value = cfg.proxy_port || 8080;
-        state.proxyPort = Number(cfg.proxy_port || state.proxyPort || 8080);
         updateProxyStatus();
         applyAiSettingsToForm(cfg.ai_agent || {});
         handleAiProviderChange();
@@ -2150,8 +2119,6 @@ if (btnSavePort) {
 
         try {
             const res = await apiRequest('POST', '/api/config', { proxy_port: port });
-            state.proxyPort = port;
-            updateProxyStatus();
             if (res.restart_needed) {
                 status.textContent = '✓ Saved — restart required to apply runtime proxy';
                 status.className = 'settings-note settings-note--warn';
@@ -2432,6 +2399,9 @@ async function getPayloads() {
         const from = parseInt($('#intruder-num-from')?.value || '0');
         const to = parseInt($('#intruder-num-to')?.value || '100');
         const step = parseInt($('#intruder-num-step')?.value || '1');
+        if (![from, to, step].every(Number.isFinite) || step <= 0 || to < from || Math.floor((to - from) / step) + 1 > 5000) {
+            throw new Error('Numbers require a positive step, an ascending range and at most 5000 payloads.');
+        }
         const payloads = [];
         for (let i = from; i <= to; i += step) {
             payloads.push(String(i));
@@ -2459,7 +2429,10 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
     if (state.intruder.running) return;
 
     const rawTemplate = dom.intruderRawRequest?.value || '';
-    const payloads = await getPayloads();
+    let payloads;
+    try { payloads = await getPayloads(); }
+    catch (e) { dom.intruderProgress.textContent = e.message; return; }
+    if (payloads.length > 5000) { dom.intruderProgress.textContent = 'Maximum 5000 payloads per attack.'; return; }
 
     if (payloads.length === 0) {
         dom.intruderProgress.textContent = 'No payloads configured.';
@@ -2484,15 +2457,19 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
         return;
     }
 
+    if (payloads.length * markers.length > 5000 && ($('#intruder-attack-type')?.value || 'sniper') === 'sniper') {
+        dom.intruderProgress.textContent = 'Maximum 5000 requests per attack. Reduce positions or payloads.'; return;
+    }
     state.intruder.running = true;
     state.intruder.results = [];
     state.intruder.abortController = new AbortController();
+    const controller = state.intruder.abortController;
     dom.intruderResults.innerHTML = '';
 
     $('#btn-intruder-start').style.display = 'none';
     $('#btn-intruder-stop').style.display = 'inline-flex';
 
-    const threads = parseInt($('#intruder-threads')?.value || '5');
+    const threads = Math.max(1, Math.min(20, parseInt($('#intruder-threads')?.value || '5') || 5));
     const attackType = $('#intruder-attack-type')?.value || 'sniper';
 
     let requestQueue = [];
@@ -2501,7 +2478,7 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
     // If no blank-line separators exist, fall back to using the single list
     // for every position.
     const payloadSets = splitPayloadSets(dom.intruderPayloads?.value || '');
-    const useExplicitSets = payloadSets.length > 1;
+    const useExplicitSets = ($('#intruder-payload-type')?.value || 'simple_list') === 'simple_list' && payloadSets.length > 1;
 
     // Build request queue based on attack type
     if (attackType === 'sniper') {
@@ -2571,7 +2548,7 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
 
     // Worker function
     async function processRequest(item, index) {
-        if (state.intruder.abortController.signal.aborted) return;
+        if (controller.signal.aborted) return;
 
         // Replace markers with payloads
         let raw = rawTemplate;
@@ -2599,6 +2576,8 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
                 headers: parsed.headers,
                 body: parsed.body || null,
             });
+            if (controller.signal.aborted) return;
+            if (res.error) throw new Error(res.error);
             const elapsed = performance.now() - startTime;
 
             let extracted = '';
@@ -2609,13 +2588,13 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
                 } catch (e) { /* noop */ }
             }
             const result = {
-                index: completed + 1,
+                index: index + 1,
                 payload: item.displayPayload,
                 status_code: res.status_code,
-                length: res.body ? res.body.length : 0,
+                length: res.content_length ?? new TextEncoder().encode(res.body || '').length,
                 time: Math.round(res.duration_ms || elapsed),
                 request_raw: raw,
-                response: res,
+                response: { ...res, body: (res.body || '').slice(0, 16384) },
                 extracted,
             };
 
@@ -2623,7 +2602,7 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
             appendIntruderResult(result);
         } catch (err) {
             const result = {
-                index: completed + 1,
+                index: index + 1,
                 payload: item.displayPayload,
                 status_code: 0,
                 length: 0,
@@ -2642,7 +2621,7 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
     // Execute with concurrency control
     const executing = new Set();
     for (let i = 0; i < requestQueue.length; i++) {
-        if (state.intruder.abortController.signal.aborted) break;
+        if (controller.signal.aborted) break;
 
         const p = processRequest(requestQueue[i], i).then(() => {
             executing.delete(p);
@@ -2659,7 +2638,9 @@ $('#btn-intruder-start')?.addEventListener('click', async () => {
     state.intruder.running = false;
     $('#btn-intruder-start').style.display = 'inline-flex';
     $('#btn-intruder-stop').style.display = 'none';
-    dom.intruderProgress.textContent = `Done: ${completed} / ${total}`;
+    dom.intruderProgress.textContent = `${controller.signal.aborted ? 'Stopped' : 'Done'}: ${completed} / ${total}`;
+    $('#btn-intruder-stop').disabled = false;
+    scheduleWorkspaceSave();
 });
 
 // Stop attack
@@ -2667,10 +2648,8 @@ $('#btn-intruder-stop')?.addEventListener('click', () => {
     if (state.intruder.abortController) {
         state.intruder.abortController.abort();
     }
-    state.intruder.running = false;
-    $('#btn-intruder-start').style.display = 'inline-flex';
-    $('#btn-intruder-stop').style.display = 'none';
-    dom.intruderProgress.textContent += ' (Stopped)';
+    $('#btn-intruder-stop').disabled = true;
+    dom.intruderProgress.textContent += ' (Stopping…)';
 });
 
 function appendIntruderResult(result) {

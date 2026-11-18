@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import DATA_DIR
+from core.storage import read_json, write_json
 
 
 # ── Persistence files ────────────────────────────────────────────
@@ -54,8 +55,7 @@ def _load_rules_raw() -> List[Dict[str, Any]]:
     if not RULES_FILE.exists():
         return []
     try:
-        with open(RULES_FILE, "r") as fh:
-            data = json.load(fh)
+        data = read_json(RULES_FILE)
         if isinstance(data, list):
             return data
     except Exception:
@@ -85,8 +85,7 @@ def load_rules() -> List[MRRule]:
 
 def save_rules(rules: List[MRRule]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(RULES_FILE, "w") as fh:
-        json.dump([r.to_dict() for r in rules], fh, indent=2)
+    write_json(RULES_FILE, [r.to_dict() for r in rules])
 
 
 def upsert_rule(payload: Dict[str, Any]) -> MRRule:
@@ -362,8 +361,8 @@ INTROSPECTION_QUERY = (
 # ── Export helpers ───────────────────────────────────────────────
 
 def _esc_html(s: Any) -> str:
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
+    import html
+    return html.escape(str(s or ""), quote=True)
 
 
 def findings_to_html(session: Dict[str, Any], findings: List[Dict[str, Any]]) -> str:
@@ -573,8 +572,7 @@ def save_macro(macro: Dict[str, Any]) -> Dict[str, Any]:
     macro["id"] = mid
     raw[mid] = macro
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(MACROS_FILE, "w") as fh:
-        json.dump(raw, fh, indent=2)
+    write_json(MACROS_FILE, raw)
     return macro
 
 
@@ -583,8 +581,7 @@ def delete_macro(mid: str) -> bool:
     if mid not in raw:
         return False
     raw.pop(mid)
-    with open(MACROS_FILE, "w") as fh:
-        json.dump(raw, fh, indent=2)
+    write_json(MACROS_FILE, raw)
     return True
 
 
@@ -605,6 +602,7 @@ DEFAULT_TOKEN_WATCH = {
     "captured": "",  # last captured value
     "captured_at": 0.0,
     "captured_source": "",
+    "captured_host": "",
 }
 
 
@@ -612,8 +610,7 @@ def load_token_watch() -> Dict[str, Any]:
     if not TOKEN_WATCH_FILE.exists():
         return dict(DEFAULT_TOKEN_WATCH)
     try:
-        with open(TOKEN_WATCH_FILE, "r") as fh:
-            data = json.load(fh)
+        data = read_json(TOKEN_WATCH_FILE)
         merged = dict(DEFAULT_TOKEN_WATCH)
         if isinstance(data, dict):
             merged.update({k: v for k, v in data.items() if k in DEFAULT_TOKEN_WATCH})
@@ -626,8 +623,7 @@ def save_token_watch(cfg: Dict[str, Any]) -> Dict[str, Any]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     current = load_token_watch()
     current.update({k: v for k, v in (cfg or {}).items() if k in DEFAULT_TOKEN_WATCH})
-    with open(TOKEN_WATCH_FILE, "w") as fh:
-        json.dump(current, fh, indent=2)
+    write_json(TOKEN_WATCH_FILE, current)
     return current
 
 
@@ -659,3 +655,15 @@ def maybe_capture_token(response_headers: Dict[str, str], response_body: str) ->
         except re.error:
             pass
     return None
+
+
+def inject_watched_token(host, headers):
+    cfg = load_token_watch()
+    if cfg.get("enabled") and cfg.get("captured") and cfg.get("captured_host") == host:
+        name = cfg.get("header_name") or "Authorization"
+        value = (cfg.get("header_template") or "{token}").replace("{token}", cfg["captured"])
+        for key in list(headers):
+            if key.lower() == name.lower():
+                del headers[key]
+        headers[name] = value
+    return headers

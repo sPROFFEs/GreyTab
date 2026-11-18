@@ -45,8 +45,8 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Scope (Keywords)</label>
-        <input type="text" id="session-scope" class="input" placeholder="example.com, api" />
+        <label class="form-label">Scope (Domains)</label>
+        <input type="text" id="session-scope" class="input" placeholder="example.com, api.example.com" />
       </div>
 
       <button class="btn btn--primary btn--block" id="btn-create-session"
@@ -179,6 +179,7 @@
         </svg>
         <span class="tab__label">AutoScanner</span>
       </button>
+      <button class="tab" data-tab="utilities"><svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"/></svg><span class="tab__label">Utilities</span></button>
       <button class="tab" data-tab="settings">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -304,7 +305,8 @@
     <!-- REPEATER TAB                              -->
     <!-- ══════════════════════════════════════════ -->
     <div class="tab-content" id="tab-repeater">
-      <div class="repeater-workspace">
+      <div class="repeater-destination"><label for="repeater-target">Destination</label><input id="repeater-target" class="input input--sm" type="url" placeholder="https://example.com (preserved from captured request)"></div>
+        <div class="repeater-workspace">
         <div class="repeater-tabbar" id="repeater-tabbar"></div>
         <div class="repeater-tab-actions">
           <button class="btn btn--ghost btn--xs" id="btn-repeater-new-tab">+ Tab</button>
@@ -353,7 +355,7 @@
           </div>
           <div class="editor-content-flex">
             <pre id="repeater-res-raw" class="code-block"></pre>
-            <iframe id="repeater-res-render" class="render-frame" style="display:none;"></iframe>
+            <iframe sandbox="" referrerpolicy="no-referrer" title="Response preview" id="repeater-res-render" class="render-frame" style="display:none;"></iframe>
             <pre id="repeater-res-diff" class="code-block" style="display:none;"></pre>
           </div>
         </div>
@@ -509,6 +511,7 @@
             <h3>Results</h3>
             <span class="badge" id="intruder-result-count">0</span>
           </div>
+          <div class="intruder-results-scroll">
           <div class="intruder-results-header">
             <span class="col-num">#</span>
             <span class="col-payload">Payload</span>
@@ -524,6 +527,7 @@
             </div>
           </div>
 
+          </div>
           <!-- Result Detail Panel -->
           <!-- Result Detail Panel removed (using modal now) -->
         </div>
@@ -831,7 +835,7 @@
             </h3>
 
             <div class="traffic-filters">
-              <input type="text" id="history-search" class="input input--sm" placeholder="Search URL, body, headers..."
+              <input type="text" id="history-search" class="input input--sm" placeholder="Search loaded URLs..."
                 style="width:160px;" />
               <input type="text" id="history-filter-host" class="input input--sm" placeholder="Host..."
                 style="width:90px;" />
@@ -955,6 +959,7 @@
             </div>
 
             <div class="form-group">
+              <label class="form-label">Login macro (run before scan)</label><select class="input" id="scanner-macro"><option value="">None</option></select>
               <label class="form-label">Test Types</label>
               <div class="scanner-checks">
                 <label class="scanner-check"><input type="checkbox" value="xss" checked /> XSS</label>
@@ -964,6 +969,11 @@
                 <label class="scanner-check"><input type="checkbox" value="lfi" checked /> LFI</label>
                 <label class="scanner-check"><input type="checkbox" value="open_redirect" checked /> Open
                   Redirect</label>
+                <label class="scanner-check"><input type="checkbox" value="ssti" checked /> SSTI</label>
+                <label class="scanner-check"><input type="checkbox" value="cmdi" checked /> Command injection</label>
+                <label class="scanner-check"><input type="checkbox" value="crlf" checked /> CRLF</label>
+                <label class="scanner-check"><input type="checkbox" value="ssrf" checked /> SSRF</label>
+                <label class="scanner-check"><input type="checkbox" value="cors" checked /> CORS</label>
                 <label class="scanner-check"><input type="checkbox" value="oast" /> OAST (Blind)</label>
               </div>
             </div>
@@ -1064,6 +1074,41 @@
     <!-- ══════════════════════════════════════════ -->
     <!-- SETTINGS TAB                              -->
     <!-- ══════════════════════════════════════════ -->
+    <div class="tab-content" id="tab-utilities">
+      <div class="utility-grid">
+        <section class="utility-card">
+          <h3>Race tester</h3>
+          <p class="settings-hint">Replay one request concurrently. Use a captured request to preserve its destination.</p>
+          <div class="utility-actions"><button class="btn btn--ghost btn--sm" id="btn-race-history">Use History selection</button><button class="btn btn--ghost btn--sm" id="btn-race-repeater">Use Repeater</button></div>
+          <input class="input" id="race-target" type="url" aria-label="Race destination" placeholder="https://target.example">
+          <textarea class="input" id="race-request" aria-label="Race request" spellcheck="false" placeholder="POST /action HTTP/1.1&#10;Host: target.example&#10;&#10;"></textarea>
+          <div class="utility-actions"><label for="race-parallel">Parallel requests</label><input class="input input--sm" id="race-parallel" type="number" min="2" max="100" value="10" style="width:80px"><button class="btn btn--primary btn--sm" id="btn-race-run">Run race</button></div>
+          <pre id="race-output" aria-live="polite">No race run yet.</pre>
+        </section>
+        <section class="utility-card">
+          <h3>WebSocket traffic</h3><p class="settings-hint">Captured frames from this session. Select a frame to inspect it.</p>
+          <div class="utility-actions"><input class="input" id="ws-filter" aria-label="Filter WebSocket frames" placeholder="Filter URL or content"><button class="btn btn--ghost btn--sm" id="btn-ws-refresh">Refresh</button></div>
+          <div id="ws-frames"></div><pre id="ws-frame-detail"></pre>
+        </section>
+        <section class="utility-card">
+          <h3>Login macros</h3><p class="settings-hint">Build a sequence from History. Steps support body regex or response header extraction and {variable} substitution.</p>
+          <select class="input" id="macro-select" aria-label="Saved macro"><option value="">New macro</option></select>
+          <input class="input" id="macro-name" aria-label="Macro name" placeholder="Macro name">
+          <div class="utility-actions"><button class="btn btn--ghost btn--sm" id="btn-macro-add">Add History selection</button><button class="btn btn--ghost btn--sm" id="btn-macro-new">New</button></div>
+          <textarea class="input" id="macro-steps" aria-label="Macro steps JSON" spellcheck="false">[]</textarea>
+          <div class="utility-actions"><input class="input" id="macro-header" aria-label="Macro inject header" placeholder="Inject header (optional): Authorization"><input class="input" id="macro-template" aria-label="Macro inject template" placeholder="Template: Bearer {token}"></div>
+          <div class="utility-actions"><button class="btn btn--primary btn--sm" id="btn-macro-save">Save</button><button class="btn btn--ghost btn--sm" id="btn-macro-run">Run</button><button class="btn btn--ghost btn--sm" id="btn-macro-delete">Delete</button></div>
+          <pre id="macro-output" aria-live="polite">No macro run yet.</pre>
+        </section>
+        <section class="utility-card">
+          <h3>GraphQL explorer</h3><p class="settings-hint">Fetch an introspection schema using the selected request's authentication headers.</p>
+          <input class="input" id="graphql-url" type="url" aria-label="GraphQL endpoint" placeholder="https://target.example/graphql">
+          <textarea class="input" id="graphql-headers" aria-label="GraphQL headers JSON" spellcheck="false">{}</textarea>
+          <div class="utility-actions"><button class="btn btn--ghost btn--sm" id="btn-graphql-history">Use History selection</button><button class="btn btn--primary btn--sm" id="btn-graphql-run">Introspect</button></div>
+          <pre id="graphql-output" aria-live="polite">No schema loaded.</pre>
+        </section>
+      </div>
+    </div>
     <div class="tab-content" id="tab-settings">
 
       <!-- Proxy Settings -->
@@ -1463,6 +1508,7 @@
   <script src="js/decoder.js"></script>
   <script src="js/bookmarklets.js"></script>
   <script src="js/tools.js"></script>
+  <script src="js/utilities.js"></script>
   <script src="js/init.js"></script>
 </body>
 

@@ -175,13 +175,14 @@ $('#btn-save-project').addEventListener('click', async () => {
 
     try {
         persistActiveRepeaterEditor();
-        const [session, logs, findings, toolRuns, scannerStatus, scannerAttempts] = await Promise.all([
+        const [session, logs, findings, toolRuns, scannerStatus, scannerAttempts, wsLogs] = await Promise.all([
             apiRequest('GET', `/api/sessions/${state.sessionId}`),
-            apiRequest('GET', `/api/logs/http?session_id=${state.sessionId}&limit=1000`),
+            apiRequest('GET', `/api/logs/http?session_id=${state.sessionId}&limit=50000`),
             apiRequest('GET', `/api/findings?session_id=${state.sessionId}`),
-            apiRequest('GET', `/api/tools/history?session_id=${state.sessionId}`),
+            apiRequest('GET', `/api/tools/history?session_id=${state.sessionId}&limit=5000`),
             apiRequest('GET', '/api/scanner/status'),
             apiRequest('GET', '/api/scanner/attempts?limit=0'),
+            apiRequest('GET', `/api/ws_log?session_id=${state.sessionId}&limit=5000`),
         ]);
 
         const project = {
@@ -192,6 +193,7 @@ $('#btn-save-project').addEventListener('click', async () => {
             http_logs: logs,
             findings,
             tool_runs: toolRuns,
+            ws_logs: wsLogs,
             repeater_state: {
                 active_tab_id: state.repeater.activeTabId,
                 tabs: state.repeater.tabs.map((t) => ({
@@ -199,6 +201,8 @@ $('#btn-save-project').addEventListener('click', async () => {
                     title: t.title,
                     manual_title: t.manual_title,
                     raw_request: t.raw_request,
+                    target_url: t.target_url,
+                    prev_response_raw: t.prev_response_raw,
                     follow_redirect: t.follow_redirect,
                     response_raw: t.response_raw,
                     response_render: t.response_render,
@@ -261,9 +265,9 @@ $('#file-load-project').addEventListener('change', async (e) => {
         // Create or activate session
         let sessionId;
         try {
-            const session = await apiRequest('POST', '/api/sessions', {
-                name: project.session.name + ' (imported)',
-                target_scope: project.session.target_scope || '',
+            const session = await apiRequest('POST', '/api/projects/import', {
+                type: project.type, session: project.session, http_logs: project.http_logs || [],
+                findings: project.findings || [], tool_runs: project.tool_runs || [], ws_logs: project.ws_logs || [],
             });
             sessionId = session.id;
         } catch (err) {
@@ -529,37 +533,32 @@ async function refreshHealth() {
 // HTTP History
 // ══════════════════════════════════════════════════════════════════
 
-async function loadHttpHistory() {
-    if (!state.sessionId) return;
+let historyCursor = 0;
+let historyLoading = false;
+const HISTORY_ROW_LIMIT = 1000;
+async function loadHttpHistory(incremental = false) {
+    if (!state.sessionId || historyLoading) return;
+    historyLoading = true;
+    const sessionId = state.sessionId;
     try {
-        const logs = await apiRequest('GET', `/api/logs/http?session_id=${state.sessionId}&limit=5000`);
-        dom.requestList.innerHTML = '';
-
-        // Reset passive findings on load so we don't duplicate
-        if (typeof passiveFindings !== 'undefined') {
-            passiveFindings.length = 0;
-            if (dom.historyFindingsList) dom.historyFindingsList.innerHTML = '';
-            if (dom.findingsBadge) dom.findingsBadge.style.display = 'none';
-        }
-
-        if (logs.length === 0) {
-            dom.requestList.innerHTML = '<div class="empty-state"><span class="empty-state__text">No requests logged yet.</span></div>';
-            return;
+        const cursor = incremental ? historyCursor : 0;
+        const logs = await apiRequest('GET', `/api/logs/http?session_id=${sessionId}&limit=${HISTORY_ROW_LIMIT}&summary=true&after_id=${cursor}`);
+        if (state.sessionId !== sessionId) return;
+        if (!incremental) {
+            dom.requestList.replaceChildren();
+            historyCursor = 0;
+            if (typeof passiveFindings !== 'undefined') passiveFindings.length = 0;
         }
         for (const log of logs) {
-            renderRequestItem(log);
-            if (typeof scanForFindings === 'function') {
-                try { scanForFindings(log, true); } catch { }
-            }
+            historyCursor = Math.max(historyCursor, Number(log.id) || 0);
+            if (!dom.requestList.querySelector(`[data-id="${log.id}"]`)) renderRequestItem(log, Boolean(cursor));
+            try { scanForFindings(log, true); } catch { }
         }
-
-        // Update badge once after scanning all history
-        if (typeof updateFindingsBadge === 'function') {
-            updateFindingsBadge();
-        }
-    } catch (e) {
-        console.error('Failed to load HTTP history:', e);
-    }
+        while (dom.requestList.children.length > HISTORY_ROW_LIMIT) dom.requestList.lastElementChild.remove();
+        if (!dom.requestList.children.length) dom.requestList.innerHTML = '<div class="empty-state"><span class="empty-state__text">No requests logged yet.</span></div>';
+        updateFindingsBadge();
+    } catch (e) { console.error('Failed to load HTTP history:', e); }
+    finally { historyLoading = false; if (state.sessionId !== sessionId) loadHttpHistory(); }
 }
 
 $('#btn-refresh-history').addEventListener('click', () => loadHttpHistory());
@@ -592,7 +591,10 @@ dom.btnClearHistory?.addEventListener('click', async () => {
 function addHistoryItem(log) {
     const emptyState = dom.requestList.querySelector('.empty-state');
     if (emptyState) emptyState.remove();
+    if (log.session_id && log.session_id !== state.sessionId) return;
+    if (dom.requestList.querySelector(`[data-id="${log.id}"]`)) return;
     renderRequestItem(log, true);
+    while (dom.requestList.children.length > HISTORY_ROW_LIMIT) dom.requestList.lastElementChild.remove();
     // Scan new history item for passive findings
     if (typeof scanForFindings === 'function') {
         try { scanForFindings(log); } catch { }
@@ -604,8 +606,12 @@ function renderRequestItem(log, prepend = false) {
     const el = document.createElement('div');
     el.className = 'request-item';
     el.dataset.id = String(log.id || '');
+    el._log = log;
+    if (Number(state.selectedLogId) === Number(log.id)) el.classList.add('request-item--active');
+    if (['red', 'orange', 'yellow', 'green', 'blue', 'purple'].includes(log.highlight)) el.dataset.highlight = log.highlight;
+    if (log.comment) el.title = log.comment;
     const statusClass = getStatusClass(log.status_code);
-    const methodClass = `method-${log.method}`;
+    const methodClass = `method-${String(log.method || '').replace(/[^A-Z]/g, '')}`;
 
     let path = log.path || log.url;
     try { path = new URL(log.url).pathname; } catch (e) { }
@@ -613,7 +619,7 @@ function renderRequestItem(log, prepend = false) {
     el.innerHTML = `
       <div class="req-main">
         <div class="req-line1">
-          <span class="req-method ${methodClass}">${log.method}</span>
+          <span class="req-method ${methodClass}">${escHtml(log.method)}</span>
           <span class="req-url" title="${escHtml(log.url)}">${escHtml(path)}</span>
         </div>
         <div class="req-host">Host: ${escHtml(log.host)}</div>
@@ -696,36 +702,17 @@ function applyHistoryFilters(el, log) {
         else if (statusFilter === '5xx' && (sc < 500 || sc >= 600)) show = false;
     }
     if (searchFilter) {
-        const text = (log.url + ' ' + (log.request_body || '') + ' ' + (log.response_body || '')).toLowerCase();
-        if (!text.includes(searchFilter)) show = false;
+        const text = log.url || '';
+        if (historySearchIsRegex) {
+            try { if (!new RegExp(dom.historySearch.value, 'i').test(text)) show = false; dom.historySearch.setCustomValidity(''); }
+            catch { show = false; dom.historySearch.setCustomValidity('Invalid regular expression'); }
+        } else if (!text.toLowerCase().includes(searchFilter)) show = false;
     }
     el.style.display = show ? 'flex' : 'none';
 }
 
 function updateAllHistoryFilters() {
-    const hostFilter = (dom.historyFilterHost?.value || '').toLowerCase();
-    const methodFilter = dom.historyFilterMethod?.value || '';
-    const statusFilter = dom.historyFilterStatus?.value || '';
-    const searchFilter = (dom.historySearch?.value || '').toLowerCase();
-
-    $$('.request-item').forEach(el => {
-        const method = el.querySelector('.req-method')?.textContent || '';
-        const url = (el.querySelector('.req-url')?.title || '').toLowerCase();
-        const status = el.querySelector('.req-status')?.textContent || '';
-        const sc = parseInt(status) || 0;
-
-        let show = true;
-        if (hostFilter && !url.includes(hostFilter)) show = false;
-        if (methodFilter && method !== methodFilter) show = false;
-        if (statusFilter) {
-            if (statusFilter === '2xx' && (sc < 200 || sc >= 300)) show = false;
-            else if (statusFilter === '3xx' && (sc < 300 || sc >= 400)) show = false;
-            else if (statusFilter === '4xx' && (sc < 400 || sc >= 500)) show = false;
-            else if (statusFilter === '5xx' && (sc < 500 || sc >= 600)) show = false;
-        }
-        if (searchFilter && !url.includes(searchFilter)) show = false;
-        el.style.display = show ? 'flex' : 'none';
-    });
+    $$('.request-item').forEach(el => applyHistoryFilters(el, el._log || {}));
 }
 
 // Filter listeners
@@ -742,7 +729,9 @@ if (dom.historySearch) {
 
 async function showRequestDetail(logId) {
     try {
+        state.selectedLogId = logId;
         const log = await apiRequest('GET', `/api/logs/http/${logId}`);
+        if (state.selectedLogId !== logId) return;
         state.selectedLogId = logId;
         state.currentLog = log;
 
@@ -865,35 +854,6 @@ function _wireHistorySearchRegexToggle() {
 }
 setTimeout(_wireHistorySearchRegexToggle, 0);
 
-// Override the search behavior to support regex when toggled.
-const _origUpdateAllHistoryFilters = updateAllHistoryFilters;
-updateAllHistoryFilters = function () {
-    if (!historySearchIsRegex) return _origUpdateAllHistoryFilters();
-    const hostFilter = (dom.historyFilterHost?.value || '').toLowerCase();
-    const methodFilter = dom.historyFilterMethod?.value || '';
-    const statusFilter = dom.historyFilterStatus?.value || '';
-    const raw = dom.historySearch?.value || '';
-    let re = null;
-    try { re = raw ? new RegExp(raw, 'i') : null; } catch (e) { re = null; }
-    $$('.request-item').forEach(el => {
-        const method = el.querySelector('.req-method')?.textContent || '';
-        const url = el.querySelector('.req-url')?.title || '';
-        const status = el.querySelector('.req-status')?.textContent || '';
-        const sc = parseInt(status) || 0;
-        let show = true;
-        if (hostFilter && !url.toLowerCase().includes(hostFilter)) show = false;
-        if (methodFilter && method !== methodFilter) show = false;
-        if (statusFilter) {
-            if (statusFilter === '2xx' && (sc < 200 || sc >= 300)) show = false;
-            else if (statusFilter === '3xx' && (sc < 300 || sc >= 400)) show = false;
-            else if (statusFilter === '4xx' && (sc < 400 || sc >= 500)) show = false;
-            else if (statusFilter === '5xx' && (sc < 500 || sc >= 600)) show = false;
-        }
-        if (re && !re.test(url)) show = false;
-        el.style.display = show ? 'flex' : 'none';
-    });
-};
-
 $('#btn-close-detail').addEventListener('click', () => {
     dom.requestDetail.style.display = 'none';
 });
@@ -990,6 +950,7 @@ document.getElementById('btn-export-findings')?.addEventListener('click', async 
     if (!state.sessionId) { alert('No active session.'); return; }
     try {
         const res = await fetch(`http://127.0.0.1:8443/api/export/findings.html?session_id=${state.sessionId}`);
+        if (!res.ok) throw new Error(`Report export failed: HTTP ${res.status}`);
         const html = await res.text();
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);

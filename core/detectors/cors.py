@@ -23,6 +23,12 @@ import httpx
 from core.scanner import ScanFinding, ScanTestEntry
 
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.scanner import ScannerEngine
+
+
 async def run(
     engine: "ScannerEngine",
     client: httpx.AsyncClient,

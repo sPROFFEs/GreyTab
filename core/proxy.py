@@ -19,7 +19,19 @@ from core.extras import (
     apply_rules_to_response,
     maybe_capture_token,
     detect_graphql,
+    inject_watched_token,
 )
+from core.config import CA_CERT_DIR
+
+
+def update_headers(headers, updated):
+    """Keep repeated headers intact unless a rule actually changed them."""
+    for key in list(headers.keys()):
+        if not any(key.lower() == k.lower() for k in updated):
+            del headers[key]
+    for key, value in updated.items():
+        if headers.get(key) != value:
+            headers[key] = value
 
 
 @dataclass
@@ -40,6 +52,7 @@ class InterceptedFlow:
     content_type: str = ""
     content_length: int = 0
     duration_ms: float = 0
+    session_id: Optional[str] = None
 
 
 class PentestProxyAddon:
@@ -49,6 +62,7 @@ class PentestProxyAddon:
         self.intercept_enabled = False  # Start disabled by default
         self.intercept_response = False  # Intercept responses too
         self.log_traffic = True
+        self.session_id = None
         self.scope_domains: Set[str] = set()
         self.exclude_domains: Set[str] = set()
         
@@ -82,7 +96,7 @@ class PentestProxyAddon:
 
     def set_scope(self, domains: List[str]):
         """Set target scope domains."""
-        self.scope_domains = set(domains)
+        self.scope_domains = {d.strip().lower().removeprefix("*.") for d in domains if d.strip()}
 
     def set_excludes(self, domains: List[str]):
         """Set domains to exclude from logging."""
@@ -90,6 +104,7 @@ class PentestProxyAddon:
 
     def _is_in_scope(self, host: str) -> bool:
         """Check if a host is within the audit scope."""
+        host = host.lower()
         if not self.scope_domains:
             # Check excludes even if no scope set
             pass
@@ -115,12 +130,19 @@ class PentestProxyAddon:
         """Called when a request is received."""
         parsed = urlparse(flow.request.pretty_url)
         host = parsed.hostname or ""
+        if host in {"127.0.0.1", "localhost", "::1"} and parsed.port == 8443:
+            return
 
         # Even if not in scope, we pass it through.
         # But if intercept is ON and it IS in scope, we stop it.
         in_scope = self._is_in_scope(host)
 
+        flow.metadata["greytab_session_id"] = self.session_id
         self._flow_start_times[flow.id] = time.time()
+        if not in_scope:
+            return
+
+        inject_watched_token(host, flow.request.headers)
 
         # ── Match & Replace (request phase) ─────────────────────
         try:
@@ -142,15 +164,12 @@ class PentestProxyAddon:
                     except Exception:
                         pass
                 # Only modify body/headers if changed (avoid unnecessary work)
+                update_headers(req.headers, new_headers)
                 if new_body != body:
                     try:
                         req.content = new_body.encode("utf-8")
                     except Exception:
                         pass
-                # Replace headers if changed
-                req.headers.clear()
-                for k, v in new_headers.items():
-                    req.headers[k] = v
         except Exception as e:
             print(f"[Proxy] Match&Replace request error: {e}")
 
@@ -198,7 +217,12 @@ class PentestProxyAddon:
         """Called when a response is received."""
         parsed = urlparse(flow.request.pretty_url)
         host = parsed.hostname or ""
+        if host in {"127.0.0.1", "localhost", "::1"} and parsed.port == 8443:
+            return
         in_scope = self._is_in_scope(host)
+        if not in_scope:
+            self._flow_start_times.pop(flow.id, None)
+            return
 
         # ── Match & Replace (response phase) ────────────────────
         try:
@@ -215,14 +239,12 @@ class PentestProxyAddon:
                 if applied:
                     if new_status and new_status != resp.status_code:
                         resp.status_code = new_status
+                    update_headers(resp.headers, new_headers)
                     if new_body != body:
                         try:
                             resp.content = new_body.encode("utf-8")
                         except Exception:
                             pass
-                    resp.headers.clear()
-                    for k, v in new_headers.items():
-                        resp.headers[k] = v
         except Exception as e:
             print(f"[Proxy] Match&Replace response error: {e}")
 
@@ -266,6 +288,7 @@ class PentestProxyAddon:
                 return  # Don't log yet — will log after resume
 
         if not self.log_traffic:
+            self._flow_start_times.pop(flow.id, None)
             return
 
         start_time = self._flow_start_times.pop(flow.id, time.time())
@@ -283,7 +306,7 @@ class PentestProxyAddon:
     def resume_flow(self, flow_id: str, updates: Optional[Dict] = None):
         """Resume a pending flow, optionally applying updates."""
         if flow_id in self._pending_flows:
-            flow = self._pending_flows.pop(flow_id)
+            flow = self._pending_flows[flow_id]
             
             if updates:
                 if 'method' in updates:
@@ -292,13 +315,15 @@ class PentestProxyAddon:
                     flow.request.url = updates['url']
                 if 'headers' in updates:
                     # updates['headers'] is dict
-                    flow.request.headers.clear()
-                    for k, v in updates['headers'].items():
-                        flow.request.headers[k] = v
+                    update_headers(flow.request.headers, updates['headers'])
                 if 'body' in updates:
                     # updates['body'] is user string
                     flow.request.content = updates['body'].encode('utf-8')
+                flow.request.headers.pop('transfer-encoding', None)
+                if flow.request.content is not None:
+                    flow.request.headers['content-length'] = str(len(flow.request.raw_content or b''))
             
+            self._pending_flows.pop(flow_id, None)
             flow.resume()
             return True
         return False
@@ -307,6 +332,7 @@ class PentestProxyAddon:
         """Kill a pending flow."""
         if flow_id in self._pending_flows:
             flow = self._pending_flows.pop(flow_id)
+            self._flow_start_times.pop(flow.id, None)
             flow.kill()
             return True
         return False
@@ -314,25 +340,25 @@ class PentestProxyAddon:
     def resume_response(self, flow_id: str, updates: Optional[Dict] = None):
         """Resume a pending response, optionally applying updates."""
         if flow_id in self._pending_responses:
-            flow = self._pending_responses.pop(flow_id)
+            flow = self._pending_responses[flow_id]
 
             if updates:
                 if 'status_code' in updates:
                     flow.response.status_code = int(updates['status_code'])
                 if 'headers' in updates:
-                    flow.response.headers.clear()
-                    for k, v in updates['headers'].items():
-                        flow.response.headers[k] = v
+                    update_headers(flow.response.headers, updates['headers'])
                 if 'body' in updates:
                     flow.response.content = updates['body'].encode('utf-8')
                     # Update content-length
-                    flow.response.headers['content-length'] = str(len(flow.response.content))
+                    flow.response.headers.pop('transfer-encoding', None)
+                    flow.response.headers['content-length'] = str(len(flow.response.raw_content or b''))
 
+            self._pending_responses.pop(flow_id, None)
             flow.resume()
 
             # Now log the flow
+            start_time = self._flow_start_times.pop(flow.id, time.time())
             if self.log_traffic:
-                start_time = self._flow_start_times.pop(flow.id, time.time())
                 duration_ms = (time.time() - start_time) * 1000
                 intercepted_flow = self._serialize_flow_full(flow, start_time, duration_ms)
                 if self._flow_callback:
@@ -352,10 +378,15 @@ class PentestProxyAddon:
             return True
         return False
 
+    def error(self, flow):
+        self._flow_start_times.pop(flow.id, None)
+        self._pending_flows.pop(flow.id, None)
+        self._pending_responses.pop(flow.id, None)
+
     def websocket_message(self, flow):
         """Log each frame on a WebSocket connection."""
         try:
-            if not flow.websocket or not flow.websocket.messages:
+            if not self.log_traffic or not flow.websocket or not flow.websocket.messages:
                 return
             msg = flow.websocket.messages[-1]
             host = flow.request.host if flow.request else ""
@@ -367,6 +398,7 @@ class PentestProxyAddon:
             except Exception:
                 content = "<binary>"
             payload = {
+                "session_id": flow.metadata.get("greytab_session_id"),
                 "flow_id": flow.id,
                 "url": flow.request.pretty_url if flow.request else "",
                 "host": host,
@@ -411,7 +443,7 @@ class PentestProxyAddon:
             content_type = flow.response.headers.get("content-type", "")
             if "text" in content_type or "json" in content_type or "xml" in content_type or "javascript" in content_type:
                 try:
-                    resp_body = flow.response.content.decode('utf-8', errors='replace')[:5000]
+                    resp_body = flow.response.content.decode('utf-8', errors='replace')
                 except:
                     resp_body = "[BINARY]"
             else:
@@ -435,7 +467,7 @@ class PentestProxyAddon:
         request_body = None
         if flow.request.content:
             try:
-                request_body = flow.request.content.decode('utf-8', errors='replace')[:5000]
+                request_body = flow.request.content.decode('utf-8', errors='replace')[:1048576]
             except Exception:
                 request_body = f"<binary: {len(flow.request.content)} bytes>"
 
@@ -444,7 +476,7 @@ class PentestProxyAddon:
         content_type = flow.response.headers.get("content-type", "")
         if flow.response.content and ("text" in content_type or "json" in content_type or "xml" in content_type or "javascript" in content_type):
             try:
-                response_body_preview = flow.response.content.decode('utf-8', errors='replace')[:50000]
+                response_body_preview = flow.response.content.decode('utf-8', errors='replace')[:1048576]
             except Exception:
                 response_body_preview = None
 
@@ -463,6 +495,7 @@ class PentestProxyAddon:
             content_type=content_type,
             content_length=len(flow.response.content) if flow.response.content else 0,
             duration_ms=duration_ms,
+            session_id=flow.metadata.get("greytab_session_id"),
         )
 
 
@@ -476,6 +509,7 @@ class ProxyManager:
         self._master: Optional[DumpMaster] = None
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._startup_error = None
 
     def set_callbacks(self, on_flow: Callable, on_intercept: Callable, on_response_intercept: Optional[Callable] = None):
         """Set the callbacks."""
@@ -487,6 +521,7 @@ class ProxyManager:
             listen_host=self.host,
             listen_port=self.port,
             ssl_insecure=True,
+            confdir=str(CA_CERT_DIR),
         )
 
         self._thread = threading.Thread(
@@ -496,6 +531,19 @@ class ProxyManager:
             name="mitmproxy-thread",
         )
         self._thread.start()
+        for _ in range(100):
+            await asyncio.sleep(0.1)
+            if self._startup_error or not self.is_running:
+                raise RuntimeError(f"Proxy startup failed: {self._startup_error}")
+            if self._master and CA_CERT_DIR.joinpath("mitmproxy-ca-cert.pem").exists():
+                try:
+                    reader, writer = await asyncio.open_connection(self.host, self.port)
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+                except OSError:
+                    pass
+        raise RuntimeError("Proxy startup timed out")
 
     def _run_proxy(self, opts: options.Options):
         """Run mitmproxy in its own event loop (separate thread)."""
@@ -510,14 +558,17 @@ class ProxyManager:
         try:
             self._loop.run_until_complete(_start())
         except Exception as e:
+            self._startup_error = str(e)
             print(f"[Proxy] Error: {e}")
+        finally:
+            self._loop.close()
 
     async def stop(self):
         """Stop the proxy."""
         if self._master:
             self._master.shutdown()
         if self._thread:
-            self._thread.join(timeout=5)
+            await asyncio.to_thread(self._thread.join, 5)
 
     @property
     def is_running(self) -> bool:
@@ -525,11 +576,27 @@ class ProxyManager:
 
     def set_intercept_mode(self, enabled: bool):
         """Toggle intercept mode (hold requests)."""
-        self.addon.intercept_enabled = enabled
+        def apply():
+            self.addon.intercept_enabled = enabled
+            if not enabled:
+                for flow_id in list(self.addon._pending_flows):
+                    self.addon.resume_flow(flow_id)
+        if self._loop:
+            self._loop.call_soon_threadsafe(apply)
+        else:
+            apply()
 
     def set_intercept_response(self, enabled: bool):
         """Toggle response intercept mode."""
-        self.addon.intercept_response = enabled
+        def apply():
+            self.addon.intercept_response = enabled
+            if not enabled:
+                for flow_id in list(self.addon._pending_responses):
+                    self.addon.resume_response(flow_id)
+        if self._loop:
+            self._loop.call_soon_threadsafe(apply)
+        else:
+            apply()
 
     def set_scope(self, domains: List[str]):
         """Set target scope."""
@@ -539,30 +606,27 @@ class ProxyManager:
         """Set excluded domains."""
         self.addon.set_excludes(domains)
 
-    def resume_flow(self, flow_id: str, updates: Optional[Dict] = None):
-        """Resume a flow via the addon, scheduled in the proxy loop."""
-        if self._loop:
-             self._loop.call_soon_threadsafe(
-                 self.addon.resume_flow, flow_id, updates
-             )
+    async def _call(self, fn, *args):
+        if not self._loop or self._loop.is_closed():
+            return False
+        async def invoke():
+            return fn(*args)
+        return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(invoke(), self._loop))
 
-    def drop_flow(self, flow_id: str):
-        """Drop a flow via the addon."""
-        if self._loop:
-             self._loop.call_soon_threadsafe(
-                 self.addon.drop_flow, flow_id
-             )
+    async def resume_flow(self, flow_id, updates=None):
+        return await self._call(self.addon.resume_flow, flow_id, updates)
 
-    def resume_response(self, flow_id: str, updates: Optional[Dict] = None):
-        """Resume a response via the addon, scheduled in the proxy loop."""
-        if self._loop:
-             self._loop.call_soon_threadsafe(
-                 self.addon.resume_response, flow_id, updates
-             )
+    async def drop_flow(self, flow_id):
+        return await self._call(self.addon.drop_flow, flow_id)
 
-    def drop_response(self, flow_id: str):
-        """Drop a response via the addon."""
-        if self._loop:
-             self._loop.call_soon_threadsafe(
-                 self.addon.drop_response, flow_id
-             )
+    async def resume_response(self, flow_id, updates=None):
+        return await self._call(self.addon.resume_response, flow_id, updates)
+
+    async def drop_response(self, flow_id):
+        return await self._call(self.addon.drop_response, flow_id)
+
+    async def pending(self):
+        def snapshot():
+            return {"requests": [self.addon._serialize_flow_request(f) for f in self.addon._pending_flows.values()],
+                    "responses": [self.addon._serialize_flow_response(f) for f in self.addon._pending_responses.values()]}
+        return await self._call(snapshot) or {"requests": [], "responses": []}

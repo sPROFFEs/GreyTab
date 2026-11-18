@@ -130,6 +130,41 @@ class LoggerDB:
         if self._db:
             await self._db.close()
 
+    async def import_project(self, project: Dict) -> Dict:
+        """Import a project atomically, remapping all request references."""
+        import uuid
+        session_id = uuid.uuid4().hex[:8]
+        session = project.get("session") or {}
+        name = str(session.get("name") or "Project") + " (imported)"
+        scope = str(session.get("target_scope") or "")
+        now = time.time()
+        async with aiosqlite.connect(str(self.db_path)) as conn:
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await conn.execute("INSERT INTO sessions (id, name, created_at, target_scope) VALUES (?, ?, ?, ?)", (session_id, name, now, scope))
+            id_map = {}
+            for log in project.get("http_logs", []):
+                columns = ["timestamp", "method", "url", "host", "path", "request_headers", "request_body", "status_code", "response_headers", "response_body_preview", "content_type", "content_length", "duration_ms"]
+                values = []
+                for column in columns:
+                    value = log.get(column)
+                    if column == "timestamp":
+                        value = value or now
+                    if column in {"request_headers", "response_headers"} and not isinstance(value, str):
+                        value = json.dumps(value or {})
+                    values.append(value)
+                cursor = await conn.execute(f"INSERT INTO http_log (session_id, {', '.join(columns)}) VALUES ({', '.join('?' for _ in range(len(columns) + 1))})", [session_id, *values])
+                id_map[log.get("id")] = cursor.lastrowid
+                if log.get("highlight") or log.get("comment"):
+                    await conn.execute("INSERT INTO http_log_meta (log_id, highlight, comment, updated_at) VALUES (?, ?, ?, ?)", (cursor.lastrowid, log.get("highlight", ""), log.get("comment", ""), now))
+            for finding in project.get("findings", []):
+                await conn.execute("INSERT INTO findings (session_id, timestamp, title, severity, category, description, evidence, source_tool, source_request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (session_id, finding.get("timestamp") or now, finding.get("title") or "Finding", finding.get("severity") or "info", finding.get("category") or "", finding.get("description") or "", finding.get("evidence") or "", finding.get("source_tool") or "", id_map.get(finding.get("source_request_id"))))
+            for run in project.get("tool_runs", []):
+                await conn.execute("INSERT INTO tool_runs (session_id, timestamp, tool_name, command, target_url, status, output, exit_code, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (session_id, run.get("timestamp") or now, run.get("tool_name") or "imported", run.get("command") or "", run.get("target_url") or "", "interrupted" if run.get("status") == "running" else run.get("status") or "imported", run.get("output") or "", run.get("exit_code"), run.get("duration_ms")))
+            for frame in project.get("ws_logs", []):
+                await conn.execute("INSERT INTO ws_log (session_id, timestamp, flow_id, url, host, direction, content, length, is_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (session_id, frame.get("timestamp") or now, frame.get("flow_id") or "", frame.get("url") or "", frame.get("host") or "", frame.get("direction") or "", str(frame.get("content") or "")[:20000], int(frame.get("length") or 0), int(bool(frame.get("is_text", True)))))
+            await conn.commit()
+        return {"id": session_id, "name": name, "target_scope": scope, "created_at": now}
+
     # ── Sessions ────────────────────────────────────────────────
 
     async def create_session(self, session_id: str, name: str, target_scope: str = "") -> Dict:
@@ -187,7 +222,7 @@ class LoggerDB:
              request_body,
              status_code,
              json.dumps(response_headers or {}),
-             response_body_preview[:2000] if response_body_preview else None,
+             response_body_preview[:1048576] if response_body_preview else None,
              content_type, content_length, duration_ms,
              int(is_intercepted), int(was_modified))
         )
@@ -196,23 +231,29 @@ class LoggerDB:
 
     async def get_http_logs(self, session_id: str, limit: int = 200,
                             host_filter: str = "", method_filter: str = "",
-                            status_filter: Optional[int] = None) -> List[Dict]:
+                            status_filter: Optional[int] = None, after_id: int = 0,
+                            summary: bool = False, offset: int = 0) -> List[Dict]:
         """Get HTTP logs with optional filters."""
-        query = "SELECT * FROM http_log WHERE session_id = ?"
+        query = "SELECT h.*, COALESCE(m.highlight, '') AS highlight, COALESCE(m.comment, '') AS comment FROM http_log h LEFT JOIN http_log_meta m ON m.log_id = h.id WHERE h.session_id = ?"
         params: List[Any] = [session_id]
+        if summary:
+            query = query.replace("h.*", "h.id, h.session_id, h.timestamp, h.method, h.url, h.host, h.path, h.status_code, h.content_type, h.content_length, h.duration_ms, h.response_headers")
+        if after_id:
+            query += " AND h.id > ?"
+            params.append(after_id)
         
         if host_filter:
-            query += " AND host LIKE ?"
+            query += " AND h.host LIKE ?"
             params.append(f"%{host_filter}%")
         if method_filter:
-            query += " AND method = ?"
+            query += " AND h.method = ?"
             params.append(method_filter)
         if status_filter is not None:
-            query += " AND status_code = ?"
+            query += " AND h.status_code = ?"
             params.append(status_filter)
         
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY h.id " + ("ASC" if after_id else "DESC") + " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         
         async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
@@ -226,6 +267,8 @@ class LoggerDB:
 
     async def delete_http_log(self, log_id: int, session_id: Optional[str] = None) -> int:
         """Delete a single HTTP log entry. Returns number of rows deleted."""
+        await self._db.execute("UPDATE findings SET source_request_id = NULL WHERE source_request_id = ? AND EXISTS (SELECT 1 FROM http_log WHERE id = ? AND (? IS NULL OR session_id = ?))", (log_id, log_id, session_id, session_id))
+        await self._db.execute("DELETE FROM http_log_meta WHERE log_id = ? AND EXISTS (SELECT 1 FROM http_log WHERE id = ? AND (? IS NULL OR session_id = ?))", (log_id, log_id, session_id, session_id))
         if session_id:
             cursor = await self._db.execute(
                 "DELETE FROM http_log WHERE id = ? AND session_id = ?",
@@ -241,6 +284,8 @@ class LoggerDB:
 
     async def clear_http_logs(self, session_id: str) -> int:
         """Clear all HTTP logs for a given session. Returns number of rows deleted."""
+        await self._db.execute("UPDATE findings SET source_request_id = NULL WHERE source_request_id IN (SELECT id FROM http_log WHERE session_id = ?)", (session_id,))
+        await self._db.execute("DELETE FROM http_log_meta WHERE log_id IN (SELECT id FROM http_log WHERE session_id = ?)", (session_id,))
         cursor = await self._db.execute(
             "DELETE FROM http_log WHERE session_id = ?",
             (session_id,),
@@ -340,11 +385,11 @@ class LoggerDB:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
-    async def get_tool_run(self, run_id: int) -> Optional[Dict]:
+    async def get_tool_run(self, run_id: int, output_offset: int = 0) -> Optional[Dict]:
         """Get a single tool run by id."""
         async with self._db.execute(
-            "SELECT * FROM tool_runs WHERE id = ?",
-            (run_id,),
+            "SELECT id, session_id, timestamp, tool_name, command, target_url, args, status, exit_code, duration_ms, pid, substr(output, ?, 262144) AS output, length(output) AS output_length FROM tool_runs WHERE id = ?",
+            (output_offset + 1, run_id),
         ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None

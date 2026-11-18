@@ -8,6 +8,7 @@ import shlex
 import shutil
 import signal
 import time
+import os
 from typing import Optional, Dict, Callable, Awaitable, List
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,7 @@ class ToolRunner:
 
     def __init__(self):
         self._running: Dict[int, RunningTool] = {}
+        self._stream_tasks = set()
         self._custom_tools: Dict[str, ToolDefinition] = load_custom_tools()
         self._tool_definitions: Dict[str, ToolDefinition] = {
             **BUILTIN_TOOLS,
@@ -230,6 +232,8 @@ class ToolRunner:
             stderr=asyncio.subprocess.STDOUT,
             cwd=cwd,
             env=env,
+            start_new_session=True,
+            limit=1024 * 1024,
         )
 
         running = RunningTool(
@@ -242,7 +246,9 @@ class ToolRunner:
         self._running[run_id] = running
 
         # Stream output in background
-        asyncio.create_task(self._stream_output(running, on_output, on_complete))
+        task = asyncio.create_task(self._stream_output(running, on_output, on_complete))
+        self._stream_tasks.add(task)
+        task.add_done_callback(self._stream_tasks.discard)
 
         return process.pid
 
@@ -260,6 +266,8 @@ class ToolRunner:
                     break
                 decoded = line.decode('utf-8', errors='replace').rstrip('\n')
                 running.output_buffer.append(decoded)
+                if len(running.output_buffer) > 2000:
+                    del running.output_buffer[:1000]
                 
                 if on_output and not running.is_cancelled:
                     try:
@@ -276,6 +284,15 @@ class ToolRunner:
                 except Exception:
                     pass
 
+        except Exception:
+            if running.process.returncode is None:
+                try:
+                    os.killpg(running.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                await running.process.wait()
+            if on_complete:
+                await on_complete(running.run_id, running.process.returncode or -1, (time.time() - running.started_at) * 1000)
         finally:
             self._running.pop(running.run_id, None)
 
@@ -287,12 +304,12 @@ class ToolRunner:
         
         running.is_cancelled = True
         try:
-            running.process.send_signal(signal.SIGTERM)
+            os.killpg(running.process.pid, signal.SIGTERM)
             # Give it 3 seconds to terminate gracefully
             try:
                 await asyncio.wait_for(running.process.wait(), timeout=3.0)
             except asyncio.TimeoutError:
-                running.process.kill()
+                os.killpg(running.process.pid, signal.SIGKILL)
                 await running.process.wait()
         except ProcessLookupError:
             pass  # Already dead
@@ -303,6 +320,8 @@ class ToolRunner:
         """Cancel all running tools."""
         for run_id in list(self._running.keys()):
             await self.cancel_tool(run_id)
+        if self._stream_tasks:
+            await asyncio.gather(*self._stream_tasks, return_exceptions=True)
 
     def build_command(self, tool_name: str, target: str = "",
                       wordlist: str = "", extra_args: str = "",
@@ -327,7 +346,7 @@ class ToolRunner:
             if "{target}" in args:
                 if not target:
                     raise ValueError(f"Tool {tool_name} requires a target URL")
-                args = args.replace("{target}", target)
+                args = args.replace("{target}", shlex.quote(target))
             if "{wordlist}" in args:
                 if not wordlist:
                     # Try default wordlist
@@ -336,7 +355,7 @@ class ToolRunner:
                         wordlist = str(default_wl)
                     else:
                         raise ValueError(f"Tool {tool_name} requires a wordlist")
-                args = args.replace("{wordlist}", wordlist)
+                args = args.replace("{wordlist}", shlex.quote(wordlist))
             cmd = f"{cmd} {args}"
 
         if extra_args:

@@ -28,13 +28,13 @@ function handleWsEvent(event) {
             if (dom.proxyInterceptResponse) dom.proxyInterceptResponse.checked = data.intercept_response || false;
             updateProxyStatus();
             if (state.sessionId) {
-                showActiveSession(state.sessionId);
+                apiRequest('GET', `/api/sessions/${state.sessionId}`).then(s => showActiveSession(s.name, s.id)).catch(() => {});
             }
             break;
 
         case 'request_intercepted':
             if (document.body.classList.contains('scanner-detached')) {
-                apiRequest('POST', `/api/proxy/flows/${data.id}/resume`, { action: 'resume' }).catch(() => { });
+                // The main panel owns interception. Detached scanner windows observe only.
                 break;
             }
             enqueueInterceptRequest(data);
@@ -43,14 +43,28 @@ function handleWsEvent(event) {
 
         case 'response_intercepted':
             if (document.body.classList.contains('scanner-detached')) {
-                apiRequest('POST', `/api/proxy/responses/${data.id}/resume`, { action: 'resume' }).catch(() => { });
+                // The main panel owns interception.
                 break;
             }
             enqueueInterceptResponse(data);
             activateTab('proxy');
             break;
 
+        case 'interception_resolved': {
+            const queueKey = data.response ? 'responseQueue' : 'requestQueue';
+            const idKey = data.response ? 'currentResponseId' : 'currentRequestId';
+            state.intercept[queueKey] = state.intercept[queueKey].filter(f => f.id !== data.id);
+            if (state.intercept[idKey] === data.id) {
+                state.intercept[idKey] = null;
+                const next = state.intercept[queueKey][0];
+                if (next) (data.response ? selectInterceptResponse : selectInterceptRequest)(next.id);
+                else (data.response ? dom.responseInterceptEditor : dom.interceptEditor).style.display = 'none';
+            }
+            renderRequestInterceptQueue(); renderResponseInterceptQueue();
+            break;
+        }
         case 'http_flow':
+            if (data.session_id && data.session_id !== state.sessionId) break;
             addHistoryItem(data);
             state.stats.requests++;
             updateStats();
@@ -121,6 +135,10 @@ function handleWsEvent(event) {
             });
             break;
 
+        case 'session_activated':
+            apiRequest('GET', `/api/sessions/${data.session_id}`).then(s => showActiveSession(s.name, s.id)).catch(() => {});
+            break;
+
         case 'session_created':
             showActiveSession(data.name, data.id);
             break;
@@ -189,14 +207,16 @@ async function forwardCurrentInterceptedRequest() {
     const currentInterceptId = state.intercept.currentRequestId;
     if (!currentInterceptId) return;
 
+    const originalFlow = state.intercept.requestQueue.find(f => f.id === currentInterceptId);
     const parsed = parseRawRequest(dom.editorRaw?.value || '');
     const modifications = {
         method: parsed.method,
-        url: parsed.url,
+        url: normalizeParsedRequestUrl(parsed, state.intercept.requestQueue.find(f => f.id === currentInterceptId)?.url || ''),
         headers: parsed.headers,
         body: parsed.body,
     };
 
+    if (originalFlow && parsed.body === originalFlow.body) delete modifications.body;
     try {
         await apiRequest('POST', `/api/proxy/flows/${currentInterceptId}/resume`, {
             action: 'resume',
@@ -222,6 +242,7 @@ dom.btnForward.addEventListener('click', async () => {
 dom.btnDrop.addEventListener('click', async () => {
     const currentInterceptId = state.intercept.currentRequestId;
     if (!currentInterceptId) return;
+    if (originalFlow && parsed.body === originalFlow.body) delete modifications.body;
     try {
         await apiRequest('POST', `/api/proxy/flows/${currentInterceptId}/resume`, {
             action: 'drop',
@@ -336,9 +357,10 @@ function buildRawResponseFull(statusCode, headers, body) {
 }
 
 function parseRawResponse(raw) {
-    const idx = raw.indexOf('\n\n');
+    const separator = raw.match(/\r?\n\r?\n/);
+    const idx = separator?.index ?? -1;
     const headerBlock = idx >= 0 ? raw.substring(0, idx) : raw;
-    const body = idx >= 0 ? raw.substring(idx + 2) : '';
+    const body = idx >= 0 ? raw.substring(idx + separator[0].length) : '';
 
     const lines = headerBlock.split('\n');
     const statusLine = lines[0] || '';
@@ -400,6 +422,7 @@ async function forwardCurrentInterceptedResponse() {
     const currentResponseInterceptId = state.intercept.currentResponseId;
     if (!currentResponseInterceptId) return;
 
+    const originalFlow = state.intercept.responseQueue.find(f => f.id === currentResponseInterceptId);
     const parsed = parseRawResponse(dom.editorResponseRaw.value);
     const modifications = {
         status_code: parsed.statusCode,
@@ -407,6 +430,7 @@ async function forwardCurrentInterceptedResponse() {
         body: parsed.body,
     };
 
+    if (originalFlow && parsed.body === originalFlow.response_body) delete modifications.body;
     try {
         await apiRequest('POST', `/api/proxy/responses/${currentResponseInterceptId}/resume`, {
             action: 'resume',
@@ -501,6 +525,17 @@ async function refreshProxyRuntimeStatus() {
             state.proxyPort = Number(ps.port || state.proxyPort || 8080);
             if (dom.proxyIntercept && typeof ps.intercept_enabled === 'boolean') dom.proxyIntercept.checked = ps.intercept_enabled;
             if (dom.proxyInterceptResponse && typeof ps.intercept_response === 'boolean') dom.proxyInterceptResponse.checked = ps.intercept_response;
+            if ($('#proxy-logging')) $('#proxy-logging').checked = ps.log_traffic;
+            if (!document.body.classList.contains('scanner-detached')) {
+                const pending = await apiRequest('GET', '/api/proxy/pending');
+                state.intercept.requestQueue = state.intercept.requestQueue.filter(f => pending.requests.some(p => p.id === f.id));
+                state.intercept.responseQueue = state.intercept.responseQueue.filter(f => pending.responses.some(p => p.id === f.id));
+                pending.requests.forEach(enqueueInterceptRequest);
+                pending.responses.forEach(enqueueInterceptResponse);
+                if (!pending.requests.length) { state.intercept.currentRequestId = null; dom.interceptEditor.style.display = 'none'; }
+                if (!pending.responses.length) { state.intercept.currentResponseId = null; dom.responseInterceptEditor.style.display = 'none'; }
+                renderRequestInterceptQueue(); renderResponseInterceptQueue();
+            }
         }
     } catch {
         // ignore
@@ -514,6 +549,17 @@ function updateStats() {
 }
 
 function showActiveSession(name, id) {
+    const changed = Boolean(id && id !== state.viewSessionId);
+    state.viewSessionId = id || state.sessionId;
+    if (changed) {
+        state.currentLog = null; state.selectedLogId = null; state.trafficItems = []; historyCursor = 0;
+        if (dom.requestDetail) dom.requestDetail.style.display = 'none';
+        dom.requestList.replaceChildren();
+        state.scanner.findings = [];
+        dom.scannerFindings.innerHTML = '<div class="empty-state">No findings in this workspace.</div>';
+        dom.scannerCount.textContent = '0';
+        resetScannerPanels();
+    }
     state.sessionId = id || state.sessionId;
     state.sessionName = name || state.sessionName || 'Unknown';
     if (dom.landingPage) dom.landingPage.style.display = 'none';
@@ -521,6 +567,11 @@ function showActiveSession(name, id) {
     if (dom.activeSessionName) dom.activeSessionName.textContent = state.sessionName;
     if (state.sessionId) {
         loadHttpHistory();
+        const requestedSessionId = state.sessionId;
+        apiRequest('GET', `/api/sessions/${requestedSessionId}/stats`).then(stats => {
+            if (state.sessionId !== requestedSessionId) return;
+            state.stats = { requests: stats.total_requests, tools: stats.total_tool_runs, findings: stats.total_findings }; updateStats();
+        }).catch(() => {});
     }
     scheduleWorkspaceSave();
 }

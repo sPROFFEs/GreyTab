@@ -86,45 +86,13 @@ function normalizeParsedRequestUrl(parsed, fallbackTarget = '') {
     const rawUrl = String(parsed?.url || '').trim();
     if (!rawUrl) return '';
     if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
-
-    let host = String(parsed?.headers?.Host || parsed?.headers?.host || '').trim();
-    let hostPathHint = '';
-    if (/^https?:\/\//i.test(host)) {
-        try {
-            const hu = new URL(host);
-            host = hu.host;
-            if (hu.pathname && hu.pathname !== '/') hostPathHint = hu.pathname;
-        } catch {
-            host = host.replace(/^https?:\/\//i, '');
-        }
-    }
-    if (!host && fallbackTarget) {
-        try {
-            const fu = new URL(fallbackTarget);
-            host = fu.host;
-            if (fu.pathname && fu.pathname !== '/') hostPathHint = fu.pathname;
-        } catch {
-            host = '';
-        }
-    }
-    if (!host) return rawUrl;
-
-    host = host.replace(/^https?:\/\//i, '').split('/')[0].trim();
-
-    let scheme = 'https';
-    if (fallbackTarget) {
-        try {
-            scheme = new URL(fallbackTarget).protocol.replace(':', '') || 'https';
-        } catch {
-            scheme = 'https';
-        }
-    }
-
-    let path = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
-    if ((path === '/' || path.startsWith('/?')) && hostPathHint) {
-        path = hostPathHint + (path.length > 1 ? path.slice(1) : '');
-    }
-    return `${scheme}://${host}${path}`;
+    const headerHost = Object.entries(parsed?.headers || {}).find(([key]) => key.toLowerCase() === 'host')?.[1] || '';
+    let destination;
+    try {
+        destination = new URL(fallbackTarget || (/^https?:\/\//i.test(headerHost) ? headerHost : `https://${headerHost}`));
+        if (!['http:', 'https:'].includes(destination.protocol)) return '';
+    } catch { return ''; }
+    return `${destination.protocol}//${destination.host}${rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl}`;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -146,6 +114,8 @@ function createRepeaterTab(partial = {}) {
         title: partial.title || `Tab ${tabNumber}`,
         manual_title: Boolean(partial.manual_title),
         raw_request: raw,
+        target_url: partial.target_url || '',
+        prev_response_raw: partial.prev_response_raw || '',
         follow_redirect: Boolean(partial.follow_redirect),
         response_raw: partial.response_raw || '',
         response_render: partial.response_render || '',
@@ -167,11 +137,14 @@ function persistActiveRepeaterEditor() {
     const tab = getActiveRepeaterTab();
     if (!tab) return;
     tab.raw_request = dom.repeaterRawRequest?.value || '';
+    tab.target_url = $('#repeater-target')?.value.trim() || tab.target_url || '';
     tab.follow_redirect = Boolean(dom.repeaterFollowRedirect?.checked);
 }
 
 function applyRepeaterTabToEditor(tab) {
     if (!tab) return;
+    if ($('#repeater-target')) $('#repeater-target').value = tab.target_url || '';
+    if (dom.btnRepeaterSend) dom.btnRepeaterSend.disabled = Boolean(tab.sending);
     if (dom.repeaterRawRequest) dom.repeaterRawRequest.value = tab.raw_request || '';
     if (dom.repeaterFollowRedirect) dom.repeaterFollowRedirect.checked = Boolean(tab.follow_redirect);
     if (dom.repeaterStatus) {
@@ -182,8 +155,9 @@ function applyRepeaterTabToEditor(tab) {
     if (dom.repeaterResRaw) {
         dom.repeaterResRaw.innerHTML = tab.response_raw ? highlightHttp(tab.response_raw) : '';
     }
-    if (dom.repeaterResRender) dom.repeaterResRender.srcdoc = tab.response_render || '';
+    if (dom.repeaterResRender) dom.repeaterResRender.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">` + (tab.response_render || '');
     renderRepeaterRequestPreview();
+    renderRepeaterDiff();
 }
 
 function renderRepeaterTabbar() {
@@ -262,6 +236,8 @@ function handleRepeaterTabContextAction(action) {
             title: `${tab.title} copy`,
             manual_title: true,
             raw_request: tab.raw_request,
+            target_url: tab.target_url,
+            prev_response_raw: tab.prev_response_raw,
             follow_redirect: tab.follow_redirect,
             response_raw: tab.response_raw,
             response_render: tab.response_render,
@@ -290,14 +266,17 @@ function handleRepeaterTabContextAction(action) {
 
     hideRepeaterTabContextMenu();
     renderRepeaterTabbar();
+    scheduleWorkspaceSave();
 }
 
 function activateRepeaterTab(tabId, persistCurrent = true) {
+    if (!state.repeater.tabs.some(t => t.id === tabId)) tabId = state.repeater.tabs[0]?.id;
     if (persistCurrent) persistActiveRepeaterEditor();
     state.repeater.activeTabId = tabId;
     const tab = getActiveRepeaterTab();
     if (tab) applyRepeaterTabToEditor(tab);
     renderRepeaterTabbar();
+    scheduleWorkspaceSave();
 }
 
 function closeActiveRepeaterTab() {
@@ -323,6 +302,7 @@ function closeActiveRepeaterTab() {
     const tab = getActiveRepeaterTab();
     if (tab) applyRepeaterTabToEditor(tab);
     renderRepeaterTabbar();
+    scheduleWorkspaceSave();
 }
 
 function initRepeaterWorkspace() {
@@ -357,6 +337,8 @@ function initRepeaterWorkspace() {
             title: `${current.title} copy`,
             manual_title: true,
             raw_request: current.raw_request,
+            target_url: current.target_url,
+            prev_response_raw: current.prev_response_raw,
             follow_redirect: current.follow_redirect,
             response_raw: current.response_raw,
             response_render: current.response_render,
@@ -375,7 +357,7 @@ function initRepeaterWorkspace() {
 
 dom.btnRepeaterSend?.addEventListener('click', async () => {
     const tab = getActiveRepeaterTab();
-    if (!tab) return;
+    if (!tab || tab.sending) return;
 
     persistActiveRepeaterEditor();
     tab.status_class = 'status-badge';
@@ -384,7 +366,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
     applyRepeaterTabToEditor(tab);
 
     const parsed = parseRawRequest(tab.raw_request);
-    const normalizedUrl = normalizeParsedRequestUrl(parsed, dom.scannerTarget?.value || dom.intruderTarget?.value || '');
+    const normalizedUrl = normalizeParsedRequestUrl(parsed, tab.target_url || '');
     const followRedirects = Boolean(tab.follow_redirect);
     if (!normalizedUrl) {
         tab.status_class = 'status-badge status-badge--error';
@@ -395,6 +377,8 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         return;
     }
 
+    tab.sending = true;
+    dom.btnRepeaterSend.disabled = true;
     try {
         const res = await apiRequest('POST', '/api/repeater/send', {
             method: parsed.method,
@@ -404,6 +388,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
             follow_redirects: followRedirects,
         });
 
+        if (res.error) throw new Error(res.error);
         const sc = res.status_code;
         const statusClass = sc >= 500 ? 'status-badge--error'
             : sc >= 400 ? 'status-badge--warning'
@@ -416,7 +401,8 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.prev_response_raw = tab.response_raw || '';
         tab.response_raw = buildRawResponse(res.status_code, res.headers, res.body);
         tab.response_render = res.body || '';
-        applyRepeaterTabToEditor(tab);
+        if (res.body_truncated) tab.response_raw += '\n[Response preview limited to 1 MiB]';
+        if (state.repeater.activeTabId === tab.id) applyRepeaterTabToEditor(tab);
         renderRepeaterTabbar();
     } catch (err) {
         console.error('Repeater error:', err);
@@ -425,7 +411,11 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.time_text = '0ms';
         tab.response_raw = String(err.message || err);
         tab.response_render = '';
-        applyRepeaterTabToEditor(tab);
+        if (state.repeater.activeTabId === tab.id) applyRepeaterTabToEditor(tab);
+    } finally {
+        tab.sending = false;
+        if (state.repeater.activeTabId === tab.id) dom.btnRepeaterSend.disabled = false;
+        scheduleWorkspaceSave();
     }
 });
 
@@ -483,6 +473,7 @@ function sendToRepeater(request) {
     );
     const tab = createRepeaterTab({
         raw_request: raw,
+        target_url: normalizedUrl || request.url || '',
         title: `Tab ${state.repeater.tabCounter}`,
     });
     activateRepeaterTab(tab.id, false);

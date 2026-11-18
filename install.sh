@@ -1,86 +1,31 @@
-#!/bin/bash
-
-set -e
-
-PROJECT_ROOT=$(pwd)
-VENV_PATH="$PROJECT_ROOT/venv"
-PYTHON_BIN="$VENV_PATH/bin/python3"
-PIP_BIN="$VENV_PATH/bin/pip"
-ICON_PATH="$PROJECT_ROOT/extension/icons/icon128.png"
-LAUNCHER_PATH="$PROJECT_ROOT/launcher.py"
-BIN_PATH="/usr/local/bin/greytab"
-DESKTOP_ENTRY_PATH="$HOME/.local/share/applications/greytab.desktop"
-
-echo "----------------------------------------"
-echo "GreyTab Installer (Isolated Environment)"
-echo "----------------------------------------"
-
-# 1. Check for python3-venv (Common missing piece on Debian/Kali)
-echo "Checking for system dependencies..."
-if ! python3 -m venv --help > /dev/null 2>&1; then
-    echo "'python3-venv' not found. Attempting to install..."
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y python3-venv python3-full
-    else
-        echo "❌ Error: 'python3-venv' is missing and 'apt-get' not found."
-        echo "Please install python3-venv manually: sudo apt install python3-venv"
-        exit 1
-    fi
-fi
-echo "✓ System dependencies ok."
-
-# 2. Create/Update Virtual Environment
-echo "Setting up Python Virtual Environment in $VENV_PATH..."
-if [ ! -d "$VENV_PATH" ]; then
-    python3 -m venv "$VENV_PATH"
-    echo "✓ Virtual environment created."
-else
-    echo "✓ Virtual environment already exists."
-fi
-
-# 3. Install Requirements INSIDE venv
-echo "Installing Python requirements..."
-"$PIP_BIN" install --upgrade pip
-"$PIP_BIN" install -r "$PROJECT_ROOT/requirements.txt"
-echo "✓ Python dependencies installed."
-
-# 4. Create Wrapper Script
-echo "Creating system command 'greytab'..."
-cat <<EOF > greytab_wrapper
-#!/bin/bash
-# GreyTab Wrapper - Using Isolated Venv
-cd "$PROJECT_ROOT"
-export PATH="$VENV_PATH/bin:\$PATH"
-"$PYTHON_BIN" "$LAUNCHER_PATH" "\$@"
-EOF
-
-chmod +x greytab_wrapper
-sudo mv greytab_wrapper "$BIN_PATH"
-echo "✓ System command '$BIN_PATH' updated."
-
-# 5. Create Desktop Launcher
-echo "Creating Desktop Launcher..."
-mkdir -p "$(dirname "$DESKTOP_ENTRY_PATH")"
-
-cat <<EOF > "$DESKTOP_ENTRY_PATH"
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=GreyTab
-Comment=Advanced Web Auditing Suite
-Exec=greytab
-Icon=$ICON_PATH
-Terminal=false
-Categories=Development;Security;
-EOF
-
-chmod +x "$DESKTOP_ENTRY_PATH"
-echo "✓ Desktop entry created at $DESKTOP_ENTRY_PATH"
-
-echo "----------------------------------------"
-echo "GreyTab installation complete!"
-echo "----------------------------------------"
-echo "You can now launch it by:"
-echo " 1. Typing 'greytab' in your terminal"
-echo " 2. Searching for 'GreyTab' in your application menu"
-echo "----------------------------------------"
+#!/usr/bin/env bash
+set -euo pipefail
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+[[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || { echo 'GreyTab supports Linux x86_64 only.' >&2; exit 1; }
+command -v python3 >/dev/null || { echo 'Install python3, curl and tar with your package manager first.' >&2; exit 1; }
+python3 "$PROJECT_ROOT/scripts/install_runtime.py"
+UV_BIN="$PROJECT_ROOT/.runtime/uv/uv"
+export UV_PYTHON_INSTALL_DIR="$PROJECT_ROOT/.runtime/python"
+export UV_PYTHON_BIN_DIR="$PROJECT_ROOT/.runtime/bin"
+export UV_CACHE_DIR="$PROJECT_ROOT/.runtime/cache"
+PYTHON_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["python"])' "$PROJECT_ROOT/runtime-lock.json")"
+"$UV_BIN" python install "$PYTHON_VERSION"
+"$UV_BIN" venv --python "$PYTHON_VERSION" --managed-python --allow-existing "$PROJECT_ROOT/.venv"
+"$UV_BIN" pip sync --python "$PROJECT_ROOT/.venv/bin/python" "$PROJECT_ROOT/requirements.lock"
+"$PROJECT_ROOT/.venv/bin/python" "$PROJECT_ROOT/launcher.py" --check
+BIN_DIR="${GREYTAB_BIN_DIR:-$HOME/.local/bin}"
+DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
+# shlex.quote preserves spaces, quotes and dollar signs in installation paths.
+python3 - "$PROJECT_ROOT" "$BIN_DIR/greytab" "$DESKTOP_DIR/greytab.desktop" <<'PY'
+import pathlib, shlex, sys
+root, wrapper, desktop = map(pathlib.Path, sys.argv[1:])
+python = root / '.venv/bin/python'
+wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(python)) + ' ' + shlex.quote(str(root / 'launcher.py')) + ' "$@"\n')
+wrapper.chmod(0o755)
+def quoted(value):
+    return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%') + '"'
+desktop.write_text('[Desktop Entry]\nType=Application\nName=GreyTab\nComment=Web auditing workspace\nExec=' + quoted(wrapper) + '\nIcon=' + str(root / 'extension/icons/icon128.png') + '\nTerminal=true\nCategories=Development;Security;\n')
+PY
+printf '\nGreyTab installed. Launch: %s/greytab\n' "$BIN_DIR"
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) printf 'Add the command to PATH: export PATH="%s:$PATH"\n' "$BIN_DIR";; esac

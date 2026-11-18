@@ -9,19 +9,21 @@ import shutil
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
+from core.storage import write_json
 
 
 # Base paths
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+RUNTIME_ROOT = Path(os.environ.get("GREYTAB_RUNTIME_DIR", str(PROJECT_ROOT))).expanduser().resolve()
 CHROMIUM_DIR = PROJECT_ROOT / "ungoogled-chromium"
 EXTENSION_DIR = PROJECT_ROOT / "extension"
-PROFILE_DIR = PROJECT_ROOT / "profile"
-SESSIONS_DIR = PROJECT_ROOT / "sessions"
-LOGS_DIR = PROJECT_ROOT / "logs"
+PROFILE_DIR = RUNTIME_ROOT / "profile"
+SESSIONS_DIR = RUNTIME_ROOT / "sessions"
+LOGS_DIR = RUNTIME_ROOT / "logs"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 WORDLISTS_DIR = PROJECT_ROOT / "wordlists"
-CA_CERT_DIR = PROJECT_ROOT / "certs"
-DATA_DIR = PROJECT_ROOT / "data"
+CA_CERT_DIR = RUNTIME_ROOT / "certs"
+DATA_DIR = RUNTIME_ROOT / "data"
 
 # Persistence files
 CUSTOM_TOOLS_FILE = DATA_DIR / "custom_tools.json"
@@ -35,6 +37,7 @@ def resolve_chromium_bin() -> Path:
         return Path(env_path).expanduser().resolve()
 
     direct_candidates = [
+        PROJECT_ROOT / "browser" / "chrome",
         PROJECT_ROOT / "chrome",
         PROJECT_ROOT / "chromium",
         PROJECT_ROOT / "ungoogled-chromium" / "chrome",
@@ -53,7 +56,7 @@ def resolve_chromium_bin() -> Path:
             if candidate.exists():
                 return candidate.resolve()
 
-    system_bin = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+    system_bin = shutil.which("chromium") or shutil.which("chromium-browser")
     if system_bin:
         return Path(system_bin).resolve()
 
@@ -69,7 +72,7 @@ class ProxyConfig:
     """Proxy (mitmproxy) configuration."""
     host: str = "127.0.0.1"
     port: int = 8080
-    intercept_enabled: bool = True
+    intercept_enabled: bool = False
     log_traffic: bool = True
     # Domains to exclude from interception
     exclude_domains: List[str] = field(default_factory=lambda: [
@@ -278,7 +281,7 @@ class BrowserConfig:
 def ensure_dirs():
     """Create all required directories."""
     for d in [PROFILE_DIR, SESSIONS_DIR, LOGS_DIR, SCRIPTS_DIR, WORDLISTS_DIR, CA_CERT_DIR, DATA_DIR]:
-        d.mkdir(parents=True, exist_ok=True)
+        d.mkdir(parents=True, exist_ok=True, mode=0o700)
 
 
 # ── Custom Tools Persistence ──────────────────────────────────────
@@ -332,8 +335,7 @@ def save_user_config(config: dict):
     existing = load_user_config()
     existing.update(config)
     try:
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(existing, f, indent=2)
+        write_json(CONFIG_FILE, existing)
     except Exception as e:
         print(f"[Config] Error saving config: {e}")
 

@@ -9,11 +9,12 @@ const WS_URL = 'ws://127.0.0.1:8443/ws';
 let ws = null;
 let wsReconnectTimer = null;
 let isConnected = false;
+let heartbeat = null;
 
 // ── WebSocket Management ───────────────────────────────────────
 
 function connectWebSocket() {
-    if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (ws && [WebSocket.OPEN, WebSocket.CONNECTING].includes(ws.readyState)) return;
 
     try {
         ws = new WebSocket(WS_URL);
@@ -21,6 +22,10 @@ function connectWebSocket() {
         ws.onopen = () => {
             console.log('[PB] WebSocket connected');
             isConnected = true;
+            clearInterval(heartbeat);
+            heartbeat = setInterval(() => {
+                if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'ping'}));
+            }, 20000);
             clearTimeout(wsReconnectTimer);
             // Notify side panel
             chrome.runtime.sendMessage({ type: 'ws_connected' }).catch(() => { });
@@ -39,6 +44,7 @@ function connectWebSocket() {
         ws.onclose = () => {
             console.log('[PB] WebSocket disconnected');
             isConnected = false;
+            clearInterval(heartbeat);
             ws = null;
             chrome.runtime.sendMessage({ type: 'ws_disconnected' }).catch(() => { });
             // Reconnect after 3 seconds

@@ -271,6 +271,8 @@ function hexEncode(str) {
     return Array.from(new TextEncoder().encode(str)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 function hexDecode(hex) {
+    hex = hex.replace(/\s/g, '');
+    if (hex.length % 2 || /[^0-9a-f]/i.test(hex)) throw new Error('Hex input needs complete byte pairs (00–ff).');
     const bytes = hex.match(/.{1,2}/g);
     if (!bytes) return '';
     return new TextDecoder().decode(new Uint8Array(bytes.map(b => parseInt(b, 16))));
@@ -286,7 +288,7 @@ function htmlEntityDecode(str) {
 }
 
 function unicodeEscape(str) {
-    return Array.from(str).map(c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+    return str.split('').map(c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('');
 }
 function unicodeUnescape(str) {
     return str.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
@@ -359,7 +361,7 @@ function md5(str) {
         const md5blks = []; for (let i = 0; i < 64; i += 4) md5blks[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
         return md5blks;
     }
-    function rhex(n) { let s = ''; for (let j = 0; j < 4; j++) s += ('0' + ((n >> (j * 8 + 4)) & 0x0F).toString(16) + ((n >> (j * 8)) & 0x0F).toString(16)); return s; }
+    function rhex(n) { let s = ''; for (let j = 0; j < 4; j++) s += (((n >> (j * 8 + 4)) & 0x0F).toString(16) + ((n >> (j * 8)) & 0x0F).toString(16)); return s; }
     function hex(x) { return x.map(rhex).join(''); }
     function md5str(s) {
         const n = s.length; let state = [1732584193, -271733879, -1732584194, 271733878];
@@ -397,7 +399,7 @@ async function applyDecoderOperation(input, operation, direction) {
         case 'ascii-hex':
             return isEncode ? asciiHexEncode(input) : asciiHexDecode(input);
         case 'md5':
-            return md5(input);
+            return md5(unescape(encodeURIComponent(input)));
         case 'sha1':
             return await hashDigest('SHA-1', input);
         case 'sha256':
@@ -472,8 +474,8 @@ function decodeJwt(token) {
     const parts = token.split('.');
     if (parts.length < 2) return;
     try {
-        const header = JSON.parse(b64UrlDecode(parts[0]));
-        const payload = JSON.parse(b64UrlDecode(parts[1]));
+        const header = JSON.parse(decodeURIComponent(escape(b64UrlDecode(parts[0]))));
+        const payload = JSON.parse(decodeURIComponent(escape(b64UrlDecode(parts[1]))));
         const sig = parts[2] || '';
         $('#jwt-header').value = JSON.stringify(header, null, 2);
         $('#jwt-payload').value = JSON.stringify(payload, null, 2);
@@ -494,8 +496,8 @@ async function rebuildJwt() {
         const header = JSON.parse(headerJson);
         const payload = JSON.parse(payloadJson);
 
-        const headerB64 = b64UrlEncode(JSON.stringify(header));
-        const payloadB64 = b64UrlEncode(JSON.stringify(payload));
+        const headerB64 = b64UrlEncode(unescape(encodeURIComponent(JSON.stringify(header))));
+        const payloadB64 = b64UrlEncode(unescape(encodeURIComponent(JSON.stringify(payload))));
         const unsigned = headerB64 + '.' + payloadB64;
 
         let sig = '';
@@ -510,7 +512,7 @@ async function rebuildJwt() {
             const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(unsigned));
             sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         } else {
-            sig = b64UrlEncode('unsigned');
+            sig = '';
         }
 
         const jwt = unsigned + '.' + sig;

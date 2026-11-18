@@ -89,3 +89,12 @@ node_modules/
 # ── Tests ──
 tests/_runtime/
 .pytest_cache/
+
+# Local agent metadata and verified runtime downloads
+.codex/
+.agents/
+.runtime/
+browser/
+browser.previous/
+.coverage
+htmlcov/

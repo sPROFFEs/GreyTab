@@ -85,9 +85,9 @@ function wsSend(data) {
 const WORKSPACE_STORAGE_KEY = 'greytab_workspace_state_v1';
 let workspaceSaveTimer = null;
 
-function scheduleWorkspaceSave(delayMs = 350) {
+function scheduleWorkspaceSave(delayMs = 2000) {
     if (!chrome?.storage?.local) return;
-    if (workspaceSaveTimer) clearTimeout(workspaceSaveTimer);
+    if (workspaceSaveTimer) return;
     workspaceSaveTimer = setTimeout(() => {
         workspaceSaveTimer = null;
         persistWorkspaceState().catch(() => { });
@@ -95,12 +95,12 @@ function scheduleWorkspaceSave(delayMs = 350) {
 }
 
 function snapshotWorkspaceState() {
-    const trafficItems = Array.isArray(state.trafficItems) ? state.trafficItems.slice(0, 10000) : [];
-    const intruderResults = Array.isArray(state.intruder.results) ? state.intruder.results.slice(0, 2000) : [];
+    const trafficItems = Array.isArray(state.trafficItems) ? state.trafficItems.slice(0, 500) : [];
+    const intruderResults = Array.isArray(state.intruder.results) ? state.intruder.results.slice(-200) : [];
     const scannerFindings = Array.isArray(state.scanner.findings) ? state.scanner.findings.slice(0, 3000) : [];
     const scannerActivity = Array.isArray(state.scanner.activities) ? state.scanner.activities.slice(-2000) : [];
     const scannerRequestLog = Array.isArray(state.scanner.requestLog) ? state.scanner.requestLog.slice(-4000) : [];
-    const scannerTestLog = Array.isArray(state.scanner.testLog) ? state.scanner.testLog.slice(-12000) : [];
+    const scannerTestLog = Array.isArray(state.scanner.testLog) ? state.scanner.testLog.slice(-500) : [];
 
     return {
         ts: Date.now(),
@@ -113,6 +113,8 @@ function snapshotWorkspaceState() {
                 title: t.title,
                 manual_title: t.manual_title,
                 raw_request: t.raw_request,
+                target_url: t.target_url,
+                prev_response_raw: t.prev_response_raw,
                 follow_redirect: t.follow_redirect,
                 response_raw: t.response_raw,
                 response_render: t.response_render,
@@ -451,6 +453,7 @@ if (dom.btnScannerDetach) {
 
 function activateTab(tabId) {
     if (!tabId) return;
+    if (!$(`.tab[data-tab="${CSS.escape(tabId)}"]`) || !$(`#tab-${CSS.escape(tabId)}`)) return;
     $$('.tab').forEach((t) => t.classList.remove('tab--active'));
     $$('.tab-content').forEach((c) => c.classList.remove('tab-content--active'));
     const tabBtn = $(`.tab[data-tab="${tabId}"]`);
@@ -463,6 +466,7 @@ function activateTab(tabId) {
 
     if (tabId === 'requests') loadHttpHistory();
     if (tabId === 'tools') loadTools();
+    if (tabId === 'autoscanner' && typeof refreshScanMacros === 'function') refreshScanMacros().catch(() => {});
     if (tabId === 'bookmarklets') {
         if (typeof loadBookmarklets === 'function') loadBookmarklets();
         if (typeof updateBookmarkletTargetInfo === 'function') updateBookmarkletTargetInfo();
@@ -509,7 +513,7 @@ function lineDiff(a, b) {
     const bLines = (b || '').split('\n');
     const n = aLines.length, m = bLines.length;
     // LCS DP — bounded to avoid huge cost
-    if (n > 4000 || m > 4000) {
+    if (n * m > 1000000 || n > 4000 || m > 4000) {
         return aLines.map((l, i) => `  ${l}`).join('\n') + '\n--- B ---\n' + bLines.join('\n');
     }
     const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));

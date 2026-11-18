@@ -1,230 +1,119 @@
 #!/usr/bin/env python3
-"""
-GreyTab - Main Launcher
-Entry point that orchestrates all components:
-1. Starts the FastAPI backend (which starts the mitmproxy)
-2. Launches ungoogled-chromium with proper flags
-"""
-
+"""Launch the Linux audit browser and its local services as one lifecycle."""
+import argparse
 import asyncio
+import base64
+import hashlib
 import os
 import signal
+import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).parent.resolve()
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from core import __version__ as APP_VERSION
-from core.config import (
-    get_config, CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR,
-    SESSIONS_DIR, SCRIPTS_DIR, WORDLISTS_DIR, CA_CERT_DIR, LOGS_DIR,
-    ensure_dirs,
-)
-
-# Rich for pretty terminal output
+from core import __version__
+from core.config import (CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR, LOGS_DIR,
+                         CA_CERT_DIR, ensure_dirs, get_config)
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 console = Console()
 
 
-BANNER = rf"""
-   ██████╗ ██████╗ ███████╗██╗   ██╗████████╗ █████╗ ██████╗
-  ██╔════╝ ██╔══██╗██╔════╝╚██╗ ██╔╝╚══██╔══╝██╔══██╗██╔══██╗
-  ██║  ███╗██████╔╝█████╗   ╚████╔╝    ██║   ███████║██████╔╝
-  ██║   ██║██╔══██╗██╔══╝    ╚██╔╝     ██║   ██╔══██║██╔══██╗
-  ╚██████╔╝██║  ██║███████╗   ██║      ██║   ██║  ██║██████╔╝
-   ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝╚═════╝
-
-            🔒 GreyTab v{APP_VERSION}
-            Advanced Web Auditing Suite
-"""
-
-
-def check_chromium():
-    """Verify ungoogled-chromium binary exists."""
-    if not CHROMIUM_BIN.exists():
-        console.print(f"[red]✗ Chromium binary not found at: {CHROMIUM_BIN}[/red]")
-        console.print("[yellow]  Make sure ungoogled-chromium is extracted in the project root.[/yellow]")
-        sys.exit(1)
-    
-    # Make sure it's executable
-    if not os.access(CHROMIUM_BIN, os.X_OK):
-        os.chmod(CHROMIUM_BIN, 0o755)
-    
-    console.print(f"[green]✓ Chromium binary found[/green]")
+def check_installation():
+    if sys.platform != "linux":
+        raise RuntimeError("GreyTab currently supports Linux only")
+    if not CHROMIUM_BIN.is_file() or not os.access(CHROMIUM_BIN, os.X_OK):
+        raise RuntimeError(f"Chromium not found: {CHROMIUM_BIN}. Run ./install.sh")
+    if not (EXTENSION_DIR / "manifest.json").is_file():
+        raise RuntimeError("GreyTab extension is missing")
+    result = subprocess.run([str(CHROMIUM_BIN), "--version"], capture_output=True, text=True, timeout=15)
+    if result.returncode:
+        raise RuntimeError(f"Chromium cannot start: {result.stderr.strip()}")
+    console.print(f"[green]Chromium:[/green] {result.stdout.strip()}")
 
 
-def check_extension():
-    """Verify the Chrome extension exists."""
-    manifest = EXTENSION_DIR / "manifest.json"
-    if not manifest.exists():
-        console.print(f"[red]✗ Extension not found at: {EXTENSION_DIR}[/red]")
-        sys.exit(1)
-    console.print(f"[green]✓ Extension found[/green]")
-
-
-def launch_chromium(config):
-    """Launch ungoogled-chromium with pentesting configuration."""
-    proxy_url = f"http://{config.proxy.host}:{config.proxy.port}"
-    
-    cmd = [
-        str(CHROMIUM_BIN),
-        f"--proxy-server={proxy_url}",
-        f"--user-data-dir={PROFILE_DIR}",
-        f"--load-extension={EXTENSION_DIR}",
-        "--ignore-certificate-errors",
-        "--ignore-certificate-errors-spki-list",
-        "--no-sandbox",
-        "--test-type",
-        *config.chromium_flags,
-    ]
-
-    console.print(f"\n[cyan]🚀 Launching Chromium with proxy: {proxy_url}[/cyan]")
-    console.print(f"[dim]   Profile: {PROFILE_DIR}[/dim]")
-    console.print(f"[dim]   Extension: {EXTENSION_DIR}[/dim]")
-
-    # Log stderr to file for debugging
-    chrome_log = LOGS_DIR / "chromium.log"
-    chrome_log_f = open(chrome_log, 'w')
-
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=chrome_log_f,
-        preexec_fn=os.setsid,
-    )
-
-    # Wait briefly to detect early crashes
-    time.sleep(2)
-    if process.poll() is not None:
-        chrome_log_f.close()
-        exit_code = process.returncode
-        console.print(f"[red]✗ Chromium crashed on startup (exit code: {exit_code})[/red]")
-        # Show last lines of the log
-        try:
-            log_content = chrome_log.read_text()
-            if log_content:
-                last_lines = log_content.strip().split('\n')[-15:]
-                console.print("[red]   Last log lines:[/red]")
-                for line in last_lines:
-                    console.print(f"[dim]   {line}[/dim]")
-        except Exception:
-            pass
-        console.print(f"[yellow]   Log file: {chrome_log}[/yellow]")
-        return None
-    
-    console.print(f"[green]✓ Chromium started (PID: {process.pid})[/green]")
-    return process
-
-
-async def start_backend(config):
-    """Start the FastAPI backend server."""
-    import uvicorn
-    
-    uv_config = uvicorn.Config(
-        "core.api:app",
-        host=config.api.host,
-        port=config.api.port,
-        log_level="warning",
-        reload=False,
-    )
-    server = uvicorn.Server(uv_config)
-    return server
-
-
-async def main():
-    """Main entry point."""
-    console.print(BANNER, style="bold cyan")
-    
-    config = get_config()
-    ensure_dirs()
-
-    # Preflight checks
-    console.print("\n[bold]Preflight Checks[/bold]")
-    console.print("─" * 40)
-    check_chromium()
-    check_extension()
-    console.print(f"[green]✓ Directories initialized[/green]")
-    
-    # Show configuration
-    console.print(f"\n[bold]Configuration[/bold]")
-    console.print("─" * 40)
-    console.print(f"  API Server:  http://{config.api.host}:{config.api.port}")
-    console.print(f"  Proxy:       http://{config.proxy.host}:{config.proxy.port}")
-    console.print(f"  Sessions:    {SESSIONS_DIR}")
-    console.print(f"  Scripts:     {SCRIPTS_DIR}")
-    console.print(f"  Wordlists:   {WORDLISTS_DIR}")
-
-    # Start API backend (which also starts mitmproxy)
-    console.print(f"\n[bold]Starting Services[/bold]")
-    console.print("─" * 40)
-    
-    server = await start_backend(config)
-    
-    # Run backend in background
-    backend_task = asyncio.create_task(server.serve())
-    
-    # Wait a moment for backend to start
-    await asyncio.sleep(2)
-    
-    # Launch Chromium
-    chrome_process = launch_chromium(config)
-    
-    if chrome_process is None:
-        console.print("[red]Failed to start Chromium. Shutting down backend...[/red]")
-        server.should_exit = True
-        await asyncio.sleep(1)
-        return
-
-    console.print(f"\n[bold green]═══ GreyTab is ready ═══[/bold green]")
-    console.print(f"[dim]Press Ctrl+C to shutdown everything[/dim]\n")
-
-    # Wait for either the backend task or Chrome to exit
-    try:
-        # Monitor Chrome process
-        while chrome_process.poll() is None:
-            await asyncio.sleep(1)
-        
-        console.print("\n[yellow]Chromium closed. Shutting down...[/yellow]")
-    except asyncio.CancelledError:
-        pass
-    finally:
-        # Cleanup
-        if chrome_process.poll() is None:
+def check_ports(config):
+    for name, host, port in [("API", config.api.host, config.api.port), ("proxy", config.proxy.host, config.proxy.port)]:
+        with socket.socket() as sock:
             try:
-                os.killpg(os.getpgid(chrome_process.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+                sock.bind((host, port))
+            except OSError as e:
+                raise RuntimeError(f"The {name} port {host}:{port} is already in use. Close the other instance first.") from e
 
+
+def browser_command(config):
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    cert = x509.load_pem_x509_certificate((CA_CERT_DIR / "mitmproxy-ca-cert.pem").read_bytes())
+    public_key = cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    spki = base64.b64encode(hashlib.sha256(public_key).digest()).decode()
+    return [str(CHROMIUM_BIN), f"--proxy-server=http://{config.proxy.host}:{config.proxy.port}",
+            "--proxy-bypass-list=<-loopback>;127.0.0.1:8443;localhost:8443", "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            f"--user-data-dir={PROFILE_DIR}", f"--load-extension={EXTENSION_DIR}",
+            f"--ignore-certificate-errors-spki-list={spki}", *config.chromium_flags, "about:blank"]
+
+
+async def main(no_browser=False):
+    import uvicorn
+    ensure_dirs()
+    config = get_config()
+    if not no_browser:
+        check_installation()
+    check_ports(config)
+    console.print(f"[bold]GreyTab {__version__}[/bold] · Linux · API {config.api.port} · Proxy {config.proxy.port}")
+    server = uvicorn.Server(uvicorn.Config("core.api:app", host=config.api.host, port=config.api.port, log_level="warning"))
+    backend = asyncio.create_task(server.serve())
+    browser = None
+    try:
+        for _ in range(200):
+            if backend.done():
+                await backend
+                raise RuntimeError("Backend stopped before becoming ready")
+            if server.started:
+                break
+            await asyncio.sleep(.1)
+        else:
+            raise RuntimeError("Backend startup timed out")
+        if not no_browser:
+            with (LOGS_DIR / "chromium.log").open("w") as log:
+                browser = subprocess.Popen(browser_command(config), stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
+        console.print("[green]Ready.[/green] Open the GreyTab extension from the browser toolbar. Ctrl+C closes the session.")
+        while not backend.done() and (browser is None or browser.poll() is None):
+            await asyncio.sleep(.25)
+        if browser is not None and browser.returncode:
+            raise RuntimeError(f"Chromium exited with code {browser.returncode}; see {LOGS_DIR / 'chromium.log'}")
+    finally:
+        if browser and browser.poll() is None:
+            os.killpg(browser.pid, signal.SIGTERM)
+            try:
+                await asyncio.to_thread(browser.wait, timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(browser.pid, signal.SIGKILL)
+                await asyncio.to_thread(browser.wait)
         server.should_exit = True
-        await asyncio.sleep(1)
+        try:
+            await asyncio.wait_for(backend, timeout=15)
+        except asyncio.TimeoutError:
+            backend.cancel()
+            await asyncio.gather(backend, return_exceptions=True)
 
 
 def run():
-    """Entry point with signal handling."""
-    loop = asyncio.new_event_loop()
-    
-    def signal_handler(sig, frame):
-        console.print("\n[yellow]Received shutdown signal...[/yellow]")
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
-        loop.stop()
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
+    parser = argparse.ArgumentParser(description="GreyTab web auditing suite (Linux)")
+    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--check", action="store_true", help="Check browser and Python installation")
+    parser.add_argument("--backend-only", action="store_true", help="Start API and proxy without opening Chromium")
+    args = parser.parse_args()
     try:
-        loop.run_until_complete(main())
-    except (KeyboardInterrupt, SystemExit):
-        console.print("\n[yellow]Goodbye![/yellow]")
-    finally:
-        loop.close()
+        if args.check:
+            check_installation()
+        else:
+            asyncio.run(main(args.backend_only))
+    except KeyboardInterrupt:
+        pass
+    except (RuntimeError, OSError) as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

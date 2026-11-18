@@ -9,11 +9,12 @@ import hashlib
 import uuid
 import time
 import resource
+import httpx
 from typing import Any, Dict, Set, Optional, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, File, UploadFile, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydantic import BaseModel
@@ -55,12 +56,12 @@ def _schedule_on_main_loop(coro):
     """Submit a coroutine to the main loop from any thread."""
     loop = _main_loop
     if loop is None:
+        coro.close()
         return
     try:
         asyncio.run_coroutine_threadsafe(coro, loop)
     except RuntimeError:
-        # Loop already shut down — silently drop.
-        pass
+        coro.close()
 
 # Current active session
 current_session_id: Optional[str] = None
@@ -101,6 +102,7 @@ async def _persist_scanner_finding(finding):
 
 scanner = ScannerEngine(broadcast_fn=None, finding_persistor=_persist_scanner_finding)  # Broadcast set after function defined
 ai_agent = AIAgentClient()
+repeater_client: Optional[httpx.AsyncClient] = None
 oast_hits: Dict[str, dict] = {}
 ai_review_cache: Dict[str, dict] = {}
 ai_feedback_stats: Dict[str, Dict[str, int]] = {}
@@ -113,9 +115,9 @@ async def broadcast(event_type: str, data: dict):
     """Send an event to all connected WebSocket clients."""
     message = json.dumps({"type": event_type, "data": data})
     dead = set()
-    for ws in ws_connections:
+    for ws in tuple(ws_connections):
         try:
-            await ws.send_text(message)
+            await asyncio.wait_for(ws.send_text(message), timeout=2)
         except Exception:
             dead.add(ws)
     ws_connections.difference_update(dead)
@@ -222,6 +224,7 @@ def on_token_captured(payload):
         cfg["captured"] = payload.get("token", "")
         cfg["captured_at"] = time.time()
         cfg["captured_source"] = payload.get("source", "")
+        cfg["captured_host"] = payload.get("host", "")
         gx.save_token_watch(cfg)
         _schedule_on_main_loop(broadcast("token_captured", {
             "source": payload.get("source", ""),
@@ -239,11 +242,12 @@ def on_graphql_seen(payload):
 
 
 async def _handle_ws_frame(payload: dict):
-    if not current_session_id:
+    sid = payload.get("session_id") or current_session_id
+    if not sid:
         return
     try:
         await db.log_ws_frame(
-            session_id=current_session_id,
+            session_id=sid,
             flow_id=str(payload.get("flow_id") or ""),
             url=str(payload.get("url") or ""),
             host=str(payload.get("host") or ""),
@@ -258,14 +262,14 @@ async def _handle_ws_frame(payload: dict):
 
 
 async def _handle_flow(flow):
-    """Process a completed HTTP flow."""
-    global current_session_id
-    if not current_session_id:
+    """Process a completed HTTP flow in the session where it started."""
+    session_id = getattr(flow, "session_id", None) or current_session_id
+    if not session_id:
         return
 
     try:
         log_id = await db.log_request(
-            session_id=current_session_id,
+            session_id=session_id,
             method=flow.method,
             url=flow.url,
             host=flow.host,
@@ -282,6 +286,8 @@ async def _handle_flow(flow):
 
         await broadcast("http_flow", {
             "id": log_id,
+            "session_id": session_id,
+            "timestamp": time.time(),
             "method": flow.method,
             "url": flow.url,
             "host": flow.host,
@@ -300,26 +306,31 @@ async def _handle_flow(flow):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown."""
-    global _main_loop
+    """Own service resources, including failed startup and interrupted shutdown."""
+    global _main_loop, repeater_client
     _main_loop = asyncio.get_running_loop()
     load_ai_runtime_state()
     await db.connect()
-    proxy_manager.set_callbacks(on_proxy_flow, on_interception, on_response_interception)
-    proxy_manager.set_excludes(config.proxy.exclude_domains)
-    proxy_manager.addon.set_ws_callback(on_ws_frame)
-    proxy_manager.addon.set_token_callback(on_token_captured)
-    proxy_manager.addon.set_graphql_callback(on_graphql_seen)
-    await proxy_manager.start()
-    print(f"[API] Backend running on {config.api.host}:{config.api.port}")
-    print(f"[Proxy] Intercepting on {config.proxy.host}:{config.proxy.port}")
-    yield
-    await tool_runner.cancel_all()
-    await proxy_manager.stop()
-    persist_ai_runtime_state()
-    await ai_agent.close()
-    await db.close()
-    _main_loop = None
+    try:
+        proxy_manager.set_callbacks(on_proxy_flow, on_interception, on_response_interception)
+        proxy_manager.set_excludes(config.proxy.exclude_domains)
+        proxy_manager.addon.set_ws_callback(on_ws_frame)
+        proxy_manager.addon.set_token_callback(on_token_captured)
+        proxy_manager.addon.set_graphql_callback(on_graphql_seen)
+        await proxy_manager.start()
+        repeater_client = httpx.AsyncClient(verify=False, timeout=30.0, trust_env=False,
+            limits=httpx.Limits(max_connections=30, max_keepalive_connections=15))
+        yield
+    finally:
+        await scanner.stop()
+        await tool_runner.cancel_all()
+        await proxy_manager.stop()
+        persist_ai_runtime_state()
+        await ai_agent.close()
+        if repeater_client:
+            await repeater_client.aclose()
+        await db.close()
+        _main_loop = None
 
 
 # ── FastAPI App ─────────────────────────────────────────────────
@@ -334,11 +345,29 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origin_regex=r"chrome-extension://[a-p]{32}",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def trusted_origin(origin: str) -> bool:
+    import re
+    return not origin or bool(re.fullmatch(r"chrome-extension://[a-p]{32}", origin))
+
+
+@app.middleware("http")
+async def protect_local_api(request: Request, call_next):
+    # Audited pages must never be able to invoke the local command runner.
+    if not request.url.path.startswith(("/oast/hit/", "/api/oast/hit/")):
+        if not trusted_origin(request.headers.get("origin", "")):
+            return JSONResponse({"detail": "Browser origin is not allowed"}, status_code=403)
+        if request.headers.get("sec-fetch-site") in {"cross-site", "same-site"} and not request.headers.get("origin"):
+            return JSONResponse({"detail": "Browser request is not allowed"}, status_code=403)
+        if request.url.hostname not in {"127.0.0.1", "localhost", "::1", "test", "testserver"}:
+            return JSONResponse({"detail": "Invalid local API host"}, status_code=403)
+    return await call_next(request)
 
 
 # ── Pydantic Models ────────────────────────────────────────────
@@ -394,6 +423,9 @@ class AIFeedbackRequest(BaseModel):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """Main WebSocket connection for real-time communication."""
+    if not trusted_origin(ws.headers.get("origin", "")):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     ws_connections.add(ws)
     print(f"[WS] Client connected. Total: {len(ws_connections)}")
@@ -442,19 +474,35 @@ async def _handle_ws_message(ws: WebSocket, msg: dict):
         }))
 
 
+def reset_session_scan():
+    scanner.findings.clear()
+    scanner.test_log.clear()
+    scanner.crawled_urls.clear()
+    scanner.queued_urls.clear()
+    scanner.urls_to_crawl = asyncio.Queue()
+    scanner._errors_count = 0
+    scanner._current_stage = "idle"
+    scanner._current_url = ""
+    scanner.target_host = ""
+    scanner._started_at = 0
+    scanner._requests_sent = scanner._tests_total = scanner._tests_completed = 0
+
+
 # ── Session Endpoints ───────────────────────────────────────────
 
 @app.post("/api/sessions")
 async def create_session(req: SessionCreate):
     """Create a new audit session."""
     global current_session_id
+    if scanner.running:
+        raise HTTPException(status_code=409, detail="Stop the current scan before changing session")
     session_id = str(uuid.uuid4())[:8]
     session = await db.create_session(session_id, req.name, req.target_scope)
     current_session_id = session_id
+    proxy_manager.addon.session_id = session_id
+    reset_session_scan()
     
-    if req.target_scope:
-        domains = [d.strip() for d in req.target_scope.split(",")]
-        proxy_manager.set_scope(domains)
+    proxy_manager.set_scope([d.strip() for d in req.target_scope.split(",") if d.strip()])
     
     await broadcast("session_created", session)
     return session
@@ -464,6 +512,34 @@ async def create_session(req: SessionCreate):
 async def list_sessions():
     """List all sessions."""
     return await db.get_sessions()
+
+
+class ProjectImport(BaseModel):
+    type: str
+    session: Dict
+    http_logs: List[Dict] = []
+    findings: List[Dict] = []
+    tool_runs: List[Dict] = []
+    ws_logs: List[Dict] = []
+
+
+@app.post("/api/projects/import")
+async def import_project(req: ProjectImport):
+    global current_session_id
+    if scanner.running:
+        raise HTTPException(status_code=409, detail="Stop the current scan before importing")
+    if req.type != "pentestbrowser_project" or len(req.http_logs) > 50000 or len(req.ws_logs) > 5000:
+        raise HTTPException(status_code=400, detail="Invalid project or too many requests (limit 50000)")
+    try:
+        session = await db.import_project(req.model_dump())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Project import failed: {e}")
+    current_session_id = session["id"]
+    proxy_manager.addon.session_id = current_session_id
+    reset_session_scan()
+    proxy_manager.set_scope([d.strip() for d in session["target_scope"].split(",") if d.strip()])
+    await broadcast("session_created", session)
+    return session
 
 
 @app.get("/api/sessions/{session_id}")
@@ -479,10 +555,15 @@ async def get_session(session_id: str):
 async def activate_session(session_id: str):
     """Set the active session."""
     global current_session_id
+    if scanner.running:
+        raise HTTPException(status_code=409, detail="Stop the current scan before changing session")
     session = await db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     current_session_id = session_id
+    proxy_manager.addon.session_id = session_id
+    reset_session_scan()
+    proxy_manager.set_scope([d.strip() for d in session.get("target_scope", "").split(",") if d.strip()])
     await broadcast("session_activated", {"session_id": session_id})
     return {"status": "ok", "session_id": session_id}
 
@@ -502,12 +583,15 @@ async def get_http_logs(
     host: str = "",
     method: str = "",
     status: Optional[int] = None,
+    after_id: int = Query(0, ge=0),
+    summary: bool = False,
+    offset: int = Query(0, ge=0),
 ):
     """Get HTTP traffic logs."""
     sid = session_id or current_session_id
     if not sid:
         raise HTTPException(status_code=400, detail="No active session")
-    return await db.get_http_logs(sid, limit, host, method, status)
+    return await db.get_http_logs(sid, limit, host, method, status, after_id, summary, offset)
 
 
 @app.get("/api/logs/http/{log_id}")
@@ -595,13 +679,17 @@ async def run_tool(req: ToolRunRequest):
             "duration_ms": round(duration_ms, 1),
         })
 
-    pid = await tool_runner.run_tool(
+    try:
+        pid = await tool_runner.run_tool(
         run_id=run_id,
         tool_name=req.tool_name or "custom",
         raw_command=command,
         on_output=on_output,
         on_complete=on_complete,
-    )
+        )
+    except (ValueError, OSError) as e:
+        await db.finish_tool_run(run_id, -1, 0)
+        raise HTTPException(status_code=400, detail=str(e))
 
     await broadcast("tool_started", {
         "run_id": run_id,
@@ -631,10 +719,10 @@ async def tool_history(session_id: Optional[str] = None, limit: int = 50):
     return await db.get_tool_runs(sid, limit)
 
 
-@app.get("/api/tools/{run_id}")
-async def tool_run_detail(run_id: int):
+@app.get("/api/tools/{run_id:int}")
+async def tool_run_detail(run_id: int, output_offset: int = Query(0, ge=0)):
     """Get a specific tool run detail (including accumulated output)."""
-    run = await db.get_tool_run(run_id)
+    run = await db.get_tool_run(run_id, output_offset)
     if not run:
         raise HTTPException(status_code=404, detail="Tool run not found")
     return run
@@ -652,10 +740,23 @@ async def upload_wordlist(file: UploadFile = File(...)):
     try:
         from core.config import WORDLISTS_DIR
         os.makedirs(WORDLISTS_DIR, exist_ok=True)
-        file_path = WORDLISTS_DIR / file.filename
+        from pathlib import Path
+        filename = file.filename or ""
+        if not filename or Path(filename).name != filename or "\\" in filename or filename in {".", ".."}:
+            raise HTTPException(status_code=400, detail="Invalid wordlist filename")
+        file_path = WORDLISTS_DIR / filename
+        if file_path.is_symlink():
+            raise HTTPException(status_code=400, detail="Invalid wordlist destination")
         with open(file_path, "wb") as buffer:
-            buffer.write(await file.read())
+            size = 0
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > 50 * 1024 * 1024:
+                    raise HTTPException(status_code=413, detail="Wordlist limit is 50 MiB")
+                buffer.write(chunk)
         return {"status": "success", "filename": file.filename, "path": str(file_path)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -685,7 +786,7 @@ async def get_app_config():
     """Get current application configuration."""
     ai_cfg = get_ai_agent_config()
     return {
-        "proxy_port": config.proxy.port,
+        "proxy_port": load_user_config().get("proxy_port", config.proxy.port),
         "custom_tools": tool_runner.get_custom_tools(),
         "ai_agent": mask_ai_agent_config(ai_cfg),
     }
@@ -697,11 +798,10 @@ async def update_app_config(req: ConfigUpdate):
     restart_needed = False
 
     if req.proxy_port is not None and req.proxy_port != config.proxy.port:
-        if not (1024 <= req.proxy_port <= 65535):
-            raise HTTPException(status_code=400, detail="Port must be between 1024-65535")
+        if not (1024 <= req.proxy_port <= 65535) or req.proxy_port == config.api.port:
+            raise HTTPException(status_code=400, detail="Port must be between 1024-65535 and different from the API port")
         save_user_config({"proxy_port": req.proxy_port})
         # Reflect configured value immediately in runtime status APIs/UI.
-        config.proxy.port = req.proxy_port
         changes["proxy_port"] = req.proxy_port
         restart_needed = True
 
@@ -864,6 +964,7 @@ async def proxy_status():
         "host": config.proxy.host,
         "port": config.proxy.port,
         "intercept_enabled": proxy_manager.addon.intercept_enabled,
+        "intercept_response": proxy_manager.addon.intercept_response,
         "log_traffic": proxy_manager.addon.log_traffic,
         "scope_domains": list(proxy_manager.addon.scope_domains),
         "exclude_domains": list(proxy_manager.addon.exclude_domains),
@@ -884,6 +985,7 @@ async def update_proxy_settings(settings: ProxySettings):
     if settings.log_traffic is not None:
         proxy_manager.addon.log_traffic = settings.log_traffic
     
+    await proxy_manager._call(lambda: True)
     await broadcast("proxy_settings_updated", {
         "intercept_enabled": proxy_manager.addon.intercept_enabled,
         "intercept_response": proxy_manager.addon.intercept_response,
@@ -892,26 +994,33 @@ async def update_proxy_settings(settings: ProxySettings):
     return {"status": "ok"}
 
 
+@app.get("/api/proxy/pending")
+async def proxy_pending():
+    return await proxy_manager.pending()
+
+
+async def resolve_interception(flow_id, action, response=False):
+    if action.action not in {"resume", "drop"}:
+        raise HTTPException(status_code=400, detail="Action must be resume or drop")
+    fn = (proxy_manager.drop_response if response else proxy_manager.drop_flow) if action.action == "drop" else (proxy_manager.resume_response if response else proxy_manager.resume_flow)
+    try:
+        ok = await fn(flow_id) if action.action == "drop" else await fn(flow_id, action.modifications)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail="Interception is no longer pending")
+    await broadcast("interception_resolved", {"id": flow_id, "response": response})
+    return {"status": "dropped" if action.action == "drop" else "resumed"}
+
+
 @app.post("/api/proxy/flows/{flow_id}/resume")
 async def resume_flow(flow_id: str, action: InterceptAction):
-    """Resume a successfully intercepted request flow, applying modifications if any."""
-    if action.action == "drop":
-        proxy_manager.drop_flow(flow_id)
-        return {"status": "dropped"}
-    
-    proxy_manager.resume_flow(flow_id, action.modifications)
-    return {"status": "resumed"}
+    return await resolve_interception(flow_id, action)
 
 
 @app.post("/api/proxy/responses/{flow_id}/resume")
 async def resume_response(flow_id: str, action: InterceptAction):
-    """Resume a successfully intercepted response flow, applying modifications if any."""
-    if action.action == "drop":
-        proxy_manager.drop_response(flow_id)
-        return {"status": "dropped"}
-    
-    proxy_manager.resume_response(flow_id, action.modifications)
-    return {"status": "resumed"}
+    return await resolve_interception(flow_id, action, response=True)
 
 
 # ── Repeater Endpoints ──────────────────────────────────────────
@@ -925,42 +1034,35 @@ class RepeaterRequest(BaseModel):
 
 @app.post("/api/repeater/send")
 async def repeater_send(req: RepeaterRequest):
-    """Execute a request via the backend (Repeater functionality)."""
-    import httpx
-    
-    # Filter restricted headers that might confuse httpx
-    headers = {k: v for k, v in req.headers.items() if k.lower() not in ['content-length', 'host']}
-    
+    """Replay without inheriting browser state or machine-wide proxy variables."""
+    if not req.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="An absolute HTTP(S) URL is required")
+    headers = {k: v for k, v in req.headers.items() if k.lower() not in {"content-length", "transfer-encoding"}}
+    from http.cookiejar import DefaultCookiePolicy
+    class NoResponseCookies(DefaultCookiePolicy):
+        def set_ok(self, cookie, request):
+            return False
+    repeater_client.cookies.jar.set_policy(NoResponseCookies())
+    repeater_client.cookies.clear()
+    started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(verify=False, follow_redirects=req.follow_redirects, timeout=30.0) as client:
-            response = await client.request(
-                method=req.method,
-                url=req.url,
-                headers=headers,
-                content=req.body.encode('utf-8') if req.body else None,
-            )
-            
-            # Serialize response
-            resp_body = ""
-            try:
-                resp_body = response.content.decode('utf-8', errors='replace')
-            except:
-                resp_body = f"[Binary content: {len(response.content)} bytes]"
-            
-            return {
-                "status_code": response.status_code,
-                "headers": dict(response.headers),
-                "body": resp_body,
-                "duration_ms": response.elapsed.total_seconds() * 1000
-            }
+        async with repeater_client.stream(req.method, req.url, headers=headers,
+                follow_redirects=req.follow_redirects, content=(req.body or "").encode("utf-8")) as response:
+            chunks = bytearray()
+            truncated = False
+            async for chunk in response.aiter_bytes():
+                available = 1048576 - len(chunks)
+                chunks.extend(chunk[:available])
+                if len(chunk) > available:
+                    truncated = True
+                    break
+            return {"status_code": response.status_code, "headers": dict(response.headers),
+                    "body": chunks.decode(response.encoding or "utf-8", errors="replace"),
+                    "duration_ms": (time.perf_counter() - started) * 1000,
+                    "body_truncated": truncated, "content_length": len(chunks)}
     except Exception as e:
-        return {
-            "error": str(e),
-            "status_code": 0,
-            "headers": {},
-            "body": "",
-            "duration_ms": 0
-        }
+        return {"error": str(e), "status_code": 0, "headers": {}, "body": "",
+                "duration_ms": (time.perf_counter() - started) * 1000, "content_length": 0}
 
 
 # ── Intruder Endpoints ──────────────────────────────────────────
@@ -1001,11 +1103,21 @@ class ScannerStart(BaseModel):
     xss_headless_confirm: bool = True
     oast_enabled: bool = False
     oast_base_url: str = ""
+    macro_id: Optional[str] = None
 
 @app.post("/api/scanner/start")
 async def start_scanner(req: ScannerStart):
     """Start the auto scanner."""
     try:
+        from urllib.parse import urlparse
+        parsed = urlparse(req.target_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise HTTPException(status_code=400, detail="A valid HTTP(S) target URL is required")
+        if scanner.running:
+            raise HTTPException(status_code=409, detail="Scanner already running")
+        if req.macro_id:
+            await macros_run(req.macro_id)
+        req.headers = gx.inject_watched_token(parsed.hostname, dict(req.headers))
         if req.oast_enabled and not str(req.oast_base_url or "").strip():
             raise HTTPException(
                 status_code=400,
@@ -1149,6 +1261,15 @@ async def token_watch_get():
 
 @app.post("/api/token_watch")
 async def token_watch_update(req: Dict):
+    import re
+    try:
+        for key in ("body_pattern", "cookie_pattern"):
+            if req.get(key):
+                re.compile(req[key])
+        if "header_name" in req and not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", req["header_name"]):
+            raise ValueError("Invalid header name")
+    except (re.error, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return gx.save_token_watch(req or {})
 
 
@@ -1163,6 +1284,21 @@ async def macros_list():
 
 @app.post("/api/macros")
 async def macros_save(req: Dict):
+    import re
+    steps = req.get("steps")
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 50:
+        raise HTTPException(status_code=400, detail="A macro needs 1–50 steps")
+    try:
+        for step in steps:
+            if not isinstance(step, dict) or not str(step.get("url", "")).startswith(("http://", "https://")):
+                raise ValueError("Each step needs an HTTP(S) URL")
+            if step.get("extract_kind", "regex") not in {"regex", "header"}:
+                raise ValueError("Extraction kind must be regex or header")
+            for pattern in (step.get("extract") or {}).values():
+                if step.get("extract_kind", "regex") == "regex":
+                    re.compile(pattern)
+    except (ValueError, TypeError, re.error) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return gx.save_macro(req or {})
 
 
@@ -1222,12 +1358,14 @@ async def macros_run(macro_id: str):
             for k, v in extracted.items():
                 tmpl = tmpl.replace("{" + k + "}", v)
             cfg = gx.load_token_watch()
-            cfg["captured"] = next(iter(extracted.values()), "") if extracted else ""
+            cfg["captured"] = tmpl
+            from urllib.parse import urlparse
+            cfg["captured_host"] = urlparse(url).hostname or ""
             cfg["captured_source"] = "macro"
             cfg["captured_at"] = time.time()
             cfg["enabled"] = True
             cfg["header_name"] = macro["inject_header"]
-            cfg["header_template"] = macro["inject_template"]
+            cfg["header_template"] = "{token}"
             gx.save_token_watch(cfg)
         return {"status": "ok", "extracted": extracted}
     except Exception as e:
@@ -1340,11 +1478,11 @@ class ScanFromRequest(BaseModel):
 async def scan_from_request(req: ScanFromRequest):
     if scanner.running:
         raise HTTPException(status_code=400, detail="Scanner already running")
-    method = req.method or "GET"
+    method = req.method
     url = req.url or ""
     headers = req.headers or {}
     body = req.body
-    if req.log_id and (not url or not method):
+    if req.log_id:
         log = await db.get_http_log_detail(req.log_id)
         if not log:
             raise HTTPException(status_code=404, detail="Log entry not found")
@@ -1354,7 +1492,8 @@ async def scan_from_request(req: ScanFromRequest):
             headers = headers or json.loads(log.get("request_headers") or "{}")
         except Exception:
             pass
-        body = body or log.get("request_body")
+        body = body if body is not None else log.get("request_body")
+    method = method or "GET"
     if not url:
         raise HTTPException(status_code=400, detail="url is required")
     ai_cfg = get_ai_agent_config()
@@ -1393,9 +1532,9 @@ class RaceRequest(BaseModel):
 async def race_run(req: RaceRequest):
     """Fire N requests in parallel and return their timeline."""
     import httpx as _httpx
-    n = max(2, min(int(req.parallel), 200))
+    n = max(2, min(int(req.parallel), 100))
     headers = {k: v for k, v in (req.headers or {}).items()
-               if k.lower() not in ("content-length", "host")}
+               if k.lower() not in ("content-length", "transfer-encoding")}
     body_bytes = req.body.encode("utf-8") if req.body else None
 
     async def one(client, idx):
@@ -1418,7 +1557,7 @@ async def race_run(req: RaceRequest):
         except Exception as e:
             return {"index": idx, "status": 0, "duration_ms": 0, "length": 0, "error": str(e)}
 
-    async with _httpx.AsyncClient(verify=False, follow_redirects=req.follow_redirects, timeout=30.0) as client:
+    async with _httpx.AsyncClient(verify=False, follow_redirects=req.follow_redirects, timeout=30.0, trust_env=False, limits=_httpx.Limits(max_connections=n)) as client:
         results = await asyncio.gather(*(one(client, i) for i in range(n)))
     statuses: Dict[str, int] = {}
     for r in results:

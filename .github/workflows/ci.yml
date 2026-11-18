@@ -1,0 +1,45 @@
+name: Linux validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.13.18'
+      - name: Install validation dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.lock -r requirements-dev.txt
+      - name: Backend and extension regressions
+        run: |
+          .venv/bin/pytest -q
+          node --test tests/extension.test.cjs
+          .venv/bin/ruff check core launcher.py scripts tests --select F821,F822,F823,E9
+          bash -n install.sh quickstart.sh
+      - name: Install pinned Chromium and Linux libraries
+        run: |
+          .venv/bin/playwright install-deps chromium
+          python scripts/install_runtime.py
+      - name: Real extension workflows and screenshots
+        run: .venv/bin/python tests/browser_smoke.py --output tests/_runtime/browser
+      - name: Build and verify release archive
+        run: |
+          python scripts/build_release.py
+          cd dist
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: linux-qa
+          path: |
+            tests/_runtime/browser/
+            dist/

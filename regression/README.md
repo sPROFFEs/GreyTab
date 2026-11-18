@@ -1,40 +1,21 @@
-# Scanner Regression Suite
+# Scanner lab regression
 
-This folder provides a repeatable FP/FN metric workflow per release.
+The application's automated tests validate request construction, deterministic detector behavior and browser workflows. This separate harness measures findings against independently running vulnerable labs. Its example baseline is a template, not evidence that those labs were scanned for a release.
 
-## 1) Prepare vulnerable labs
+## Prepare
 
-Run your local test targets (examples):
-- DVWA
-- OWASP Juice Shop
-- WebGoat
+Start authorized local DVWA, OWASP Juice Shop and/or WebGoat installations. Copy `baseline.example.json` to your own baseline and update the URLs, authentication headers, enabled families and expected findings to match the lab version/configuration. Install GreyTab using the [Linux one-liner](../docs/INSTALL.md), then start `greytab --backend-only` and create a session via the API or extension.
 
-Update `regression/baseline.example.json` with the correct local URLs and expected findings.
-
-## 2) Run regression
+## Run
 
 ```bash
-python3 scripts/scanner_regression.py \
+.venv/bin/python scripts/scanner_regression.py \
   --api-base http://127.0.0.1:8443 \
   --baseline regression/baseline.example.json \
-  --release v0.1.0 \
-  --output regression/reports/v0.1.0.json
+  --release v0.3.0 \
+  --output regression/reports/v0.3.0.json
 ```
 
-Run a subset:
+Select a subset with `--profiles dvwa,juice_shop`. `--timeout` controls the per-profile timeout. OAST profiles require a reachable callback URL. Use fixture data and never commit real authentication tokens in baselines/reports.
 
-```bash
-python3 scripts/scanner_regression.py --profiles dvwa,juice_shop
-```
-
-## 3) Track release quality
-
-Compare `regression/reports/*.json` across releases:
-- `summary.tp`
-- `summary.fp`
-- `summary.fn`
-- `summary.precision`
-- `summary.recall`
-- `summary.f1`
-
-Use this as a release gate to avoid scanner regressions.
+Compare `summary.tp`, `fp`, `fn`, `precision`, `recall` and `f1` only across equivalent lab versions and baseline definitions. Review unmatched findings individually: an extra finding may be valid and missing from the baseline. The harness reports metrics; it does not impose an automatic pass threshold. Use the [release validation procedure](../docs/RELEASE.md) to decide which evidence is required for a detector change.

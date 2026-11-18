@@ -23,6 +23,7 @@ async function init() {
     applyInitialViewMode();
     await loadPersistedScannerFormState();
     await restoreWorkspaceState().catch(() => { });
+    applyInitialViewMode();
     renderRepeaterRequestPreview();
     // Sync scroll between textarea and highlight layer
     if (dom.repeaterRawRequest && dom.repeaterReqHighlight) {
@@ -121,7 +122,7 @@ async function init() {
 
     // Manual Add Finding
     if (dom.btnAddFinding) {
-        dom.btnAddFinding.addEventListener('click', () => {
+        dom.btnAddFinding.addEventListener('click', async () => {
             if (!state.currentLog) {
                 alert('No request selected. Select a request in History first.');
                 return;
@@ -138,6 +139,9 @@ async function init() {
                 request: typeof buildRawRequest === 'function' ? buildRawRequest(flow.method || 'GET', flow.url, flow.request_headers, flow.request_body) : '',
                 response: flow.response_raw || flow.response_body || ''
             };
+            try {
+                await apiRequest('POST', '/api/findings', { title: finding.name, severity: finding.severity, description: finding.description, evidence: finding.request, source_request_id: flow.id, source_tool: 'manual' });
+            } catch (e) { alert('Could not save finding: ' + e.message); return; }
             if (typeof addScannerFinding === 'function') {
                 addScannerFinding(finding);
                 const scannerTabBtn = document.querySelector('.tab[data-tab="autoscanner"]');
@@ -168,7 +172,7 @@ async function init() {
                     cols[0].style.flex = 'none';
                     cols[1].style.flex = 'none';
                     cols[0].style.width = clamped + '%';
-                    cols[1].style.width = (100 - clamped) + '%';
+                    cols[1].style.width = `calc(${100 - clamped}% - 8px)`;
                 };
 
                 const onUp = () => {
@@ -255,9 +259,9 @@ async function init() {
         refreshProxyRuntimeStatus();
         updateRunningTools();
         if (state.sessionId && (state.activeTab === 'requests' || dom.requestList?.children?.length <= 1)) {
-            loadHttpHistory();
+            loadHttpHistory(true);
         }
-    }, 3000);
+    }, 5000);
 
     loadTools();
 }

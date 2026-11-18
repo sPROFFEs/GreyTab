@@ -17,7 +17,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 from core.config import CHROMIUM_BIN
@@ -401,6 +401,7 @@ class ScannerEngine:
         self._oast_enabled: bool = False
         self._oast_base_url: str = ""
         self._oast_hit_checker: Optional[Callable[[str], Awaitable[bool]]] = None
+        self._single_request = None
 
     def status(self) -> dict:
         elapsed_s = max(0.0, time.time() - self._started_at) if self._started_at else 0.0
@@ -474,6 +475,7 @@ class ScannerEngine:
             raise RuntimeError("Scanner already running")
 
         self.running = True
+        self._single_request = None
         self.findings = []
         self.test_log = []
         self.crawled_urls = set()
@@ -510,7 +512,7 @@ class ScannerEngine:
         parsed = urlparse(target_url)
         self.target_host = parsed.hostname or ""
         self.scan_depth = max(1, min(scan_depth, 6))
-        if test_types:
+        if test_types is not None:
             self.test_types = test_types
 
         await self._enqueue_url(target_url, depth=0, reason="seed")
@@ -554,7 +556,8 @@ class ScannerEngine:
         self._findings_hashes = set()
         self._cancel_event.clear()
         self.urls_to_crawl = asyncio.Queue()
-        self.scan_headers = headers or {}
+        self.scan_headers = {k: v for k, v in (headers or {}).items() if k.lower() not in {"content-length", "transfer-encoding"}}
+        self._single_request = {"method": method.upper(), "body": body or ""}
         self.crawl_enabled = False
         self.ai_config = ai_config or {}
         self.ai_analyzer = ai_analyzer
@@ -577,25 +580,23 @@ class ScannerEngine:
         parsed = urlparse(url)
         self.target_host = parsed.hostname or ""
         self.target_url = url
-        if test_types:
+        if test_types is not None:
             self.test_types = test_types
 
         async def _runner():
             try:
                 async with httpx.AsyncClient(
                     verify=False,
+                    trust_env=False,
                     follow_redirects=True,
                     timeout=15.0,
                     headers=self.scan_headers,
                 ) as client:
                     try:
-                        if method.upper() == "GET":
-                            resp = await client.get(url)
-                        else:
-                            resp = await client.request(
-                                method.upper(), url,
-                                content=body.encode("utf-8") if body else None,
-                            )
+                        resp = await client.request(
+                            method.upper(), url,
+                            content=body.encode("utf-8") if body else None,
+                        )
                         self._requests_sent += 1
                     except Exception as e:
                         self._errors_count += 1
@@ -607,7 +608,14 @@ class ScannerEngine:
                             })
                         self.running = False
                         return
-                    await self._test_url(client, url, resp)
+                    await self._passive_checks(url, resp)
+                    points = self._captured_insertion_points(url)
+                    if not points and "cors" in self.test_types:
+                        await self._test_cors(client, url, urlparse(url))
+                    for point in points:
+                        if self._cancel_event.is_set():
+                            break
+                        await self._run_tests_for_insertion(client, point)
             finally:
                 self.running = False
                 self._current_stage = "done"
@@ -618,11 +626,45 @@ class ScannerEngine:
 
         self._task = asyncio.create_task(_runner())
 
+    def _captured_insertion_points(self, url):
+        """Mutate captured parameters while preserving the original method and body."""
+        original = self._single_request or {"method": "GET", "body": ""}
+        method, body = original["method"], original["body"]
+        points = []
+        for name, values in parse_qs(urlparse(url).query, keep_blank_values=True).items():
+            points.append({"kind": "query", "url": url, "method": method, "name": name,
+                           "baseline": values[0], "meta": {}})
+        ct = next((v for k, v in self.scan_headers.items() if k.lower() == "content-type"), "")
+        if "json" in ct:
+            try:
+                document = json.loads(body)
+                def walk(value, path):
+                    if isinstance(value, dict):
+                        for key, child in value.items():
+                            walk(child, path + [key])
+                    elif isinstance(value, list):
+                        for index, child in enumerate(value):
+                            walk(child, path + [index])
+                    elif path:
+                        points.append({"kind": "body_json", "url": url, "method": method,
+                                       "name": ".".join(map(str, path)), "baseline": str(value),
+                                       "meta": {"document": document, "json_path": path}})
+                walk(document, [])
+            except (ValueError, TypeError):
+                pass
+        elif "application/x-www-form-urlencoded" in ct:
+            form = dict(parse_qsl(body, keep_blank_values=True))
+            for name, value in form.items():
+                points.append({"kind": "body_form", "url": url, "method": method,
+                               "name": name, "baseline": value, "meta": {"base_form": form}})
+        return points[:80]
+
     async def _scan_loop(self):
         """Main scan loop: crawl and test URLs."""
         try:
             async with httpx.AsyncClient(
                 verify=False,
+                trust_env=False,
                 follow_redirects=True,
                 timeout=15.0,
                 limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
@@ -1432,7 +1474,7 @@ class ScannerEngine:
         new_url = urlunparse(parsed)
 
         if insertion_kind == "query":
-            params = parse_qs(parsed.query)
+            params = parse_qs(parsed.query, keep_blank_values=True)
             params[param_name] = [payload]
             new_query = urlencode(params, doseq=True)
             new_url = urlunparse(parsed._replace(query=new_query))
@@ -1447,7 +1489,15 @@ class ScannerEngine:
             if not base_json:
                 base_json = {param_name: "1"}
             base_json[param_name] = payload
-            kwargs["json"] = base_json
+            if "json_path" in meta:
+                document = json.loads(json.dumps(meta["document"]))
+                parent = document
+                for part in meta["json_path"][:-1]:
+                    parent = parent[part]
+                parent[meta["json_path"][-1]] = payload
+                kwargs["json"] = document
+            else:
+                kwargs["json"] = base_json
             request_headers.setdefault("Content-Type", "application/json")
         elif insertion_kind == "body_xml":
             base_xml = dict(meta.get("base_xml", {}))
@@ -1477,6 +1527,8 @@ class ScannerEngine:
             new_query = urlencode(params, doseq=True)
             new_url = urlunparse(parsed._replace(query=new_query))
 
+        if self._single_request and not kwargs and self._single_request["body"]:
+            kwargs["content"] = self._single_request["body"].encode("utf-8")
         started = time.perf_counter()
         req_raw = ""
         res_raw = ""
@@ -1497,7 +1549,8 @@ class ScannerEngine:
                 body=body_text,
             )
 
-            send_kwargs = {"timeout": timeout_s}
+            request.extensions["timeout"] = httpx.Timeout(timeout_s).as_dict()
+            send_kwargs = {}
             if follow_redirects is not None:
                 send_kwargs["follow_redirects"] = follow_redirects
             resp = await client.send(request, **send_kwargs)
