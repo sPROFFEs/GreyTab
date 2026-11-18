@@ -33,6 +33,7 @@ def build(output):
                         continue
                     info = tar.gettarinfo(str(source), arcname=path)
                     info.uid = info.gid = 0; info.uname = info.gname = ''; info.mtime = 0
+                    info.mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
                     with source.open('rb') as content: tar.addfile(info, content)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (output / 'SHA256SUMS').write_text(f'{digest}  {archive.name}\n')
