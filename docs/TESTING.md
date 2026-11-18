@@ -28,6 +28,15 @@ Ports 8080, 8443 and 19443–19445 must be free. Use `--chromium /absolute/path/
 
 Artifacts include screenshots of ten views at 320, 380, 768 and 1440 pixels, backend logs, HAR, a `.pbx` project, an HTML findings report and `qa.json`. Check the JSON and inspect screenshots; successful DOM assertions alone do not establish visual quality. Screenshot datasets contain fixture credentials/tokens only.
 
+For focused History, inspector, Repeater editor and responsive layout coverage, run:
+
+```bash
+.venv/bin/pytest -q tests/test_history_workspace.py
+.venv/bin/python tests/browser_smoke.py --inspection-only --output /tmp/greytab-history-qa
+```
+
+This run captures all ten views at four widths plus the populated inspector. It checks that a paused page stays stable as traffic arrives, an old note is searchable, repeated query fields are visible, the site map opens matching traffic and the full-session HAR downloads as valid JSON.
+
 ## Installation validation
 
 Build with `python3 scripts/build_release.py --output /tmp/greytab-dist`, verify `SHA256SUMS`, extract into a new directory whose name includes spaces, then run its `install.sh` with isolated `GREYTAB_BIN_DIR` and `XDG_DATA_HOME`. Check the generated command with `--version` and `--check`, run a backend lifecycle, and reinstall to check idempotence and state preservation. The final release archive must be rebuilt after the final source commit.

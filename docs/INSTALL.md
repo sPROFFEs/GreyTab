@@ -1,17 +1,17 @@
 # Installing GreyTab on Linux
 
-Release 0.3.0 supports Linux x86_64 with glibc 2.28 or newer and a graphical desktop. ARM, musl/Alpine, Windows and macOS are not supported in this release.
+Release 0.3.1 supports Linux x86_64 with glibc 2.28 or newer and a graphical desktop. ARM, musl/Alpine, Windows and macOS are not supported in this release.
 
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.1/quickstart.sh | bash
 ```
 
 The versioned bootstrap installs the latest published release by default. To reproduce this release exactly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.0/quickstart.sh | GREYTAB_VERSION=v0.3.0 bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.1/quickstart.sh | GREYTAB_VERSION=v0.3.1 bash
 ```
 
 The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It downloads a release archive and checks `SHA256SUMS`. `install.sh` then installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from URLs and SHA-256 values in `runtime-lock.json`, Python 3.13.18, and every package in `requirements.lock`.
@@ -33,7 +33,7 @@ The installer does not require sudo. A minimal Linux installation may need syste
 ## Inspect before installing
 
 ```bash
-curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.0/quickstart.sh
+curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.1/quickstart.sh
 less /tmp/greytab-install.sh
 bash /tmp/greytab-install.sh
 ```
@@ -42,7 +42,7 @@ To choose another destination, prefix `bash` with `GREYTAB_INSTALL_DIR="/path/to
 
 ## Manual installation
 
-Download `greytab-linux-x86_64.tar.gz` and `SHA256SUMS` from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.3.0), check them with `sha256sum -c SHA256SUMS`, extract into a dedicated directory and run `bash /path/to/GreyTab/install.sh`. The installer resolves its own location, so the caller's working directory does not matter. It installs the same pinned browser and Python as the one-liner.
+Download `greytab-linux-x86_64.tar.gz` and `SHA256SUMS` from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.3.1), check them with `sha256sum -c SHA256SUMS`, extract into a dedicated directory and run `bash /path/to/GreyTab/install.sh`. The installer resolves its own location, so the caller's working directory does not matter. It installs the same pinned browser and Python as the one-liner.
 
 Developers can clone the repository and run `bash install.sh`. Custom Chromium builds can be selected at launch with `GREYTAB_CHROME_BIN=/absolute/path/to/chrome`; the release's validation covers the pinned build.
 

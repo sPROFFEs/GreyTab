@@ -533,233 +533,434 @@ async function refreshHealth() {
 // HTTP History
 // ══════════════════════════════════════════════════════════════════
 
-let historyCursor = 0;
-let historyLoading = false;
-const HISTORY_ROW_LIMIT = 1000;
-async function loadHttpHistory(incremental = false) {
-    if (!state.sessionId || historyLoading) return;
-    historyLoading = true;
-    const sessionId = state.sessionId;
-    try {
-        const cursor = incremental ? historyCursor : 0;
-        const logs = await apiRequest('GET', `/api/logs/http?session_id=${sessionId}&limit=${HISTORY_ROW_LIMIT}&summary=true&after_id=${cursor}`);
-        if (state.sessionId !== sessionId) return;
-        if (!incremental) {
-            dom.requestList.replaceChildren();
-            historyCursor = 0;
-            if (typeof passiveFindings !== 'undefined') passiveFindings.length = 0;
-        }
-        for (const log of logs) {
-            historyCursor = Math.max(historyCursor, Number(log.id) || 0);
-            if (!dom.requestList.querySelector(`[data-id="${log.id}"]`)) renderRequestItem(log, Boolean(cursor));
-            try { scanForFindings(log, true); } catch { }
-        }
-        while (dom.requestList.children.length > HISTORY_ROW_LIMIT) dom.requestList.lastElementChild.remove();
-        if (!dom.requestList.children.length) dom.requestList.innerHTML = '<div class="empty-state"><span class="empty-state__text">No requests logged yet.</span></div>';
-        updateFindingsBadge();
-    } catch (e) { console.error('Failed to load HTTP history:', e); }
-    finally { historyLoading = false; if (state.sessionId !== sessionId) loadHttpHistory(); }
+const HISTORY_PAGE_SIZE = 200;
+let historyPages = [0];
+let historyRequest = 0;
+let loadedHistorySession = null;
+let historyTimer;
+let historyLive = true;
+let historyDirty = false;
+let historyEndpoint = null;
+let regexWorker;
+const historySeen = new Set();
+
+function setHistoryStatus(message) {
+    $('#history-page-status').textContent = message;
 }
 
-$('#btn-refresh-history').addEventListener('click', () => loadHttpHistory());
+function resetHistorySession() {
+    historyRequest++;
+    loadedHistorySession = null;
+    clearTimeout(historyTimer);
+    historyTimer = null;
+    historyPages = [0];
+    historyEndpoint = null;
+    historyDirty = false;
+    closeHistoryDetail();
+    dom.requestList.replaceChildren();
+    closeSiteMap();
+    historySeen.clear();
+    passiveFindings.length = 0;
+    updateFindingsBadge();
+}
 
-dom.btnClearHistory?.addEventListener('click', async () => {
-    if (!state.sessionId) return;
-    if (!confirm('Clear all history requests for this session?')) return;
-    try {
-        await apiRequest('POST', '/api/logs/http/clear', { session_id: state.sessionId });
-        dom.requestList.innerHTML = '<div class="empty-state"><span class="empty-state__text">No requests logged yet.</span></div>';
-        dom.requestDetail.style.display = 'none';
-        state.currentLog = null;
-        state.selectedLogId = null;
-        state.trafficItems = [];
+function applyPageRegex(rows, pattern) {
+    regexWorker?.terminate();
+    const worker = new Worker('js/history-regex.js');
+    regexWorker = worker;
+    return new Promise((resolve, reject) => {
+        const finish = (result, error) => {
+            clearTimeout(timeout);
+            worker.terminate();
+            if (regexWorker === worker) regexWorker = null;
+            if (error) reject(new Error(error));
+            else resolve(rows.filter(row => result.includes(row.id)));
+        };
+        const timeout = setTimeout(() => finish(null, 'Regex took too long. Simplify the pattern.'), 400);
+        worker.onmessage = ({data}) => finish(data.ids, data.error);
+        worker.onerror = () => finish(null, 'Could not run the regex.');
+        worker.postMessage({pattern, rows: rows.map(({id, url}) => ({id, url}))});
+    });
+}
 
-        // Reset passive findings so new traffic gets scanned fresh
-        if (typeof passiveFindings !== 'undefined') {
-            passiveFindings.length = 0;
-        }
-        if (typeof updateFindingsBadge === 'function') {
-            updateFindingsBadge();
-        }
-
-        scheduleWorkspaceSave();
-    } catch (e) {
-        console.error('Failed to clear history:', e);
+function openHistory() {
+    if (loadedHistorySession !== state.sessionId) {
+        loadHttpHistory();
+    } else if (historyDirty && historyLive && historyPages.length === 1 && !dom.requestList.scrollTop) {
+        historyDirty = false;
+        loadHttpHistory({keepScroll: true});
     }
+}
+
+async function loadHttpHistory({keepScroll = false} = {}) {
+    const sessionId = state.sessionId;
+    if (!sessionId) return;
+    const request = ++historyRequest;
+    const before = historyPages.at(-1);
+    const search = dom.historySearch.value.trim();
+    const regex = $('#history-regex-toggle').checked;
+    const path = historyEndpoint?.path || '';
+    const query = new URLSearchParams({
+        session_id: sessionId,
+        limit: HISTORY_PAGE_SIZE + 1,
+        summary: 'true',
+        before_id: before,
+        host: dom.historyFilterHost.value.trim(),
+        method: dom.historyFilterMethod.value,
+        status_class: parseInt(dom.historyFilterStatus.value, 10) || 0,
+        mime: $('#history-filter-mime').value,
+        annotated: $('#history-filter-annotated').checked,
+        search: regex ? '' : search,
+        exact_host: historyEndpoint?.host || '',
+        path,
+    });
+    if (!keepScroll) {
+        setHistoryStatus('Loading requests…');
+        $('#btn-history-newer').disabled = true;
+        $('#btn-history-older').disabled = true;
+    }
+    try {
+        const logs = await apiRequest('GET', '/api/logs/http?' + query);
+        if (request !== historyRequest || state.sessionId !== sessionId) return;
+        const page = logs.slice(0, HISTORY_PAGE_SIZE);
+        const visible = regex && search ? await applyPageRegex(page, search) : page;
+        if (request !== historyRequest || state.sessionId !== sessionId) return;
+        const scrollTop = keepScroll ? dom.requestList.scrollTop : 0;
+        const focusedId = document.activeElement.closest('.request-item')?.dataset.id;
+        const fragment = document.createDocumentFragment();
+        for (const log of visible) {
+            fragment.append(renderRequestItem(log));
+            recordPassiveHistory(log);
+        }
+        updateFindingsBadge();
+        if (!visible.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'No matching requests on this page.';
+            fragment.append(empty);
+        }
+        dom.requestList.replaceChildren(fragment);
+        loadedHistorySession = sessionId;
+        dom.requestList.scrollTop = scrollTop;
+        if (focusedId) dom.requestList.querySelector(`[data-id="${CSS.escape(focusedId)}"] .history-row-main`)?.focus({preventScroll: true});
+        $('#btn-history-older').disabled = logs.length <= HISTORY_PAGE_SIZE;
+        $('#btn-history-older').dataset.before = String(page.at(-1)?.id || '');
+        $('#btn-history-newer').disabled = historyPages.length < 2;
+        $('#history-page-status').title = path;
+        const count = regex && search ? `${visible.length} / ${page.length}` : visible.length;
+        setHistoryStatus(`Page ${historyPages.length} · ${count} ${count === 1 ? 'request' : 'requests'}${historyDirty ? ' · New traffic' : ''}${path ? ' · ' + path : ''}`);
+    } catch (e) {
+        if (request === historyRequest) {
+            setHistoryStatus(e.message);
+            $('#btn-history-newer').disabled = historyPages.length < 2;
+        }
+    }
+}
+
+function refreshHistoryFilters() {
+    historyRequest++;
+    clearTimeout(historyTimer);
+    historyTimer = null;
+    historyPages = [0];
+    historyDirty = false;
+    historyTimer = setTimeout(() => {
+        historyTimer = null;
+        loadHttpHistory();
+    }, 180);
+}
+
+$('#btn-refresh-history').addEventListener('click', () => {
+    historyPages = [0];
+    historyDirty = false;
+    loadHttpHistory();
+});
+$('#btn-history-live').addEventListener('click', (e) => {
+    historyLive = !historyLive;
+    e.currentTarget.setAttribute('aria-pressed', String(historyLive));
+    e.currentTarget.textContent = historyLive ? 'Live' : 'Paused';
+    if (historyLive && historyPages.length === 1) $('#btn-refresh-history').click();
+});
+$('#btn-history-older').addEventListener('click', (e) => {
+    const before = Number(e.currentTarget.dataset.before);
+    if (!before) return;
+    e.currentTarget.disabled = true;
+    historyPages.push(before);
+    loadHttpHistory();
+});
+$('#btn-history-newer').addEventListener('click', () => {
+    if (historyPages.length < 2) return;
+    historyPages.pop();
+    if (historyPages.length === 1) historyDirty = false;
+    loadHttpHistory();
+});
+const historyFilters = $$('#tab-requests .history-filters input, #tab-requests .history-filters select');
+for (const control of historyFilters) {
+    control.addEventListener(control.type === 'search' ? 'input' : 'change', refreshHistoryFilters);
+}
+dom.historyFilterHost.addEventListener('input', () => { historyEndpoint = null; });
+$('#btn-history-reset').addEventListener('click', () => {
+    for (const control of historyFilters) {
+        if (control.type === 'checkbox') control.checked = false;
+        else control.value = '';
+    }
+    historyEndpoint = null;
+    refreshHistoryFilters();
 });
 
-function addHistoryItem(log) {
-    const emptyState = dom.requestList.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
-    if (log.session_id && log.session_id !== state.sessionId) return;
-    if (dom.requestList.querySelector(`[data-id="${log.id}"]`)) return;
-    renderRequestItem(log, true);
-    while (dom.requestList.children.length > HISTORY_ROW_LIMIT) dom.requestList.lastElementChild.remove();
-    // Scan new history item for passive findings
-    if (typeof scanForFindings === 'function') {
-        try { scanForFindings(log); } catch { }
-    }
-    scheduleWorkspaceSave();
+dom.btnClearHistory?.addEventListener('click', async () => {
+    const sessionId = state.sessionId;
+    if (!sessionId || !confirm('Clear all history requests for this session?')) return;
+    try {
+        await apiRequest('POST', '/api/logs/http/clear', {session_id: sessionId});
+        if (sessionId !== state.sessionId) return;
+        resetHistorySession();
+        state.stats.requests = 0;
+        updateStats();
+        loadHttpHistory();
+    } catch (e) { setHistoryStatus(e.message); }
+});
+
+function recordPassiveHistory(log) {
+    if (!dom.passiveScanEnabled?.checked || historySeen.has(log.id)) return;
+    historySeen.add(log.id);
+    if (historySeen.size > 2000) historySeen.delete(historySeen.values().next().value);
+    scanForFindings(log, true);
+    if (passiveFindings.length > 1000) passiveFindings.splice(0, passiveFindings.length - 1000);
 }
 
-function renderRequestItem(log, prepend = false) {
+function addHistoryItem(log) {
+    if (log.session_id && log.session_id !== state.sessionId) return;
+    recordPassiveHistory(log);
+    updateFindingsBadge();
+    if (!historyDirty) {
+        historyDirty = true;
+        if (state.activeTab === 'requests') {
+            const current = $('#history-page-status').textContent;
+            setHistoryStatus(current && current.startsWith('Page ') ? current + ' · New traffic' : 'New traffic available');
+        }
+    }
+    if (!$('#sitemap-panel').hidden || !historyLive || historyPages.length > 1 || state.activeTab !== 'requests' || dom.requestList.scrollTop > 0) return;
+    // Coalesce bursts so a stream of requests does not repaint the list per packet.
+    if (historyTimer) return;
+    historyTimer = setTimeout(() => {
+        historyTimer = null;
+        if (!$('#sitemap-panel').hidden || !historyLive || historyPages.length > 1 || state.activeTab !== 'requests' || dom.requestList.scrollTop > 0) return;
+        historyDirty = false;
+        loadHttpHistory({keepScroll: true});
+    }, 450);
+}
+
+function renderRequestItem(log) {
     const el = document.createElement('div');
     el.className = 'request-item';
-    el.dataset.id = String(log.id || '');
-    el._log = log;
-    if (Number(state.selectedLogId) === Number(log.id)) el.classList.add('request-item--active');
-    if (['red', 'orange', 'yellow', 'green', 'blue', 'purple'].includes(log.highlight)) el.dataset.highlight = log.highlight;
-    if (log.comment) el.title = log.comment;
+    el.dataset.id = String(log.id);
+    if (state.selectedLogId === log.id) el.classList.add('request-item--active');
+    el.dataset.highlight = log.highlight || '';
+    el.title = log.comment || '';
+    const method = String(log.method || '');
+    const path = log.path || log.url || '/';
     const statusClass = getStatusClass(log.status_code);
-    const methodClass = `method-${String(log.method || '').replace(/[^A-Z]/g, '')}`;
-
-    let path = log.path || log.url;
-    try { path = new URL(log.url).pathname; } catch (e) { }
-
     el.innerHTML = `
-      <div class="req-main">
-        <div class="req-line1">
-          <span class="req-method ${methodClass}">${escHtml(log.method)}</span>
+      <button class="history-row-main">
+        <span class="req-method method-${method.replace(/[^A-Z]/g, '')}">${escHtml(method)}</span>
+        <span class="history-row-location">
           <span class="req-url" title="${escHtml(log.url)}">${escHtml(path)}</span>
-        </div>
-        <div class="req-host">Host: ${escHtml(log.host)}</div>
-      </div>
-      <div class="req-meta">
-        <button class="req-quick-copy" data-action="copy-curl" title="Copy as curl">📋</button>
-        <button class="req-quick-copy" data-action="scan" title="Scan this request">⚡</button>
-        <span class="req-status ${statusClass}">${log.status_code || ''}</span>
-      </div>
+          <small class="req-host">${escHtml(log.host || '')}</small>
+        </span>
+        <span class="req-status ${statusClass}">${Number(log.status_code) || '—'}</span>
+        <span class="history-size">${Number.isFinite(log.content_length) ? formatBytes(log.content_length) : '—'}</span>
+        <span class="history-time">${Number.isFinite(log.duration_ms) ? Math.round(log.duration_ms) + ' ms' : '—'}</span>
+      </button>
+      <button class="req-quick-copy" data-action="scan" aria-label="Scan this request" title="Scan this request">⚡</button>
+      <button class="btn btn--ghost btn--xs history-row-menu" aria-label="Request actions" title="Request actions">⋯</button>
     `;
-
-    el.addEventListener('click', (e) => {
-        // Quick-action buttons should not bubble to detail-open.
-        if (e.target?.closest?.('.req-quick-copy')) return;
-        dom.requestList.querySelectorAll('.request-item--active').forEach(x => x.classList.remove('request-item--active'));
-        el.classList.add('request-item--active');
-        showRequestDetail(log.id);
+    el.querySelector('.history-row-main').addEventListener('click', () => showRequestDetail(log.id));
+    const scan = el.querySelector('[data-action="scan"]');
+    scan.addEventListener('click', async () => {
+        try {
+            await apiRequest('POST', '/api/scanner/from_request', {log_id: log.id});
+            activateTab('autoscanner');
+        } catch (error) {
+            setHistoryStatus(error.message);
+        }
     });
-
-    // Quick action: copy-as-curl directly from the row
-    el.querySelectorAll('.req-quick-copy').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const action = btn.dataset.action;
-            if (action === 'copy-curl') {
-                try {
-                    const full = await apiRequest('GET', `/api/logs/http/${log.id}`);
-                    const curl = (typeof buildCurlCommand === 'function') ? buildCurlCommand(full) : `curl -v '${log.url}'`;
-                    await navigator.clipboard.writeText(curl);
-                    btn.textContent = '✓';
-                    setTimeout(() => btn.textContent = '📋', 700);
-                } catch (err) {
-                    btn.textContent = '✗';
-                    setTimeout(() => btn.textContent = '📋', 700);
-                }
-            } else if (action === 'scan') {
-                try {
-                    await apiRequest('POST', '/api/scanner/from_request', { log_id: log.id });
-                    btn.textContent = '✓';
-                    setTimeout(() => btn.textContent = '⚡', 700);
-                    if (typeof activateTab === 'function') activateTab('autoscanner');
-                } catch (err) {
-                    btn.textContent = '✗';
-                    setTimeout(() => btn.textContent = '⚡', 700);
-                }
-            }
-        });
+    el.querySelector('.history-row-menu').addEventListener('click', event => {
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        showContextMenu(rect.left, rect.bottom, log);
     });
-
-    // Context menu on right-click
-    el.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        showContextMenu(e.clientX, e.clientY, log);
+    el.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        showContextMenu(event.clientX, event.clientY, log);
     });
-
-    if (prepend) {
-        dom.requestList.prepend(el);
-    } else {
-        dom.requestList.appendChild(el);
-    }
-
-    // Apply active filters
-    applyHistoryFilters(el, log);
+    return el;
 }
 
-function applyHistoryFilters(el, log) {
-    const hostFilter = (dom.historyFilterHost?.value || '').toLowerCase();
-    const methodFilter = dom.historyFilterMethod?.value || '';
-    const statusFilter = dom.historyFilterStatus?.value || '';
-    const searchFilter = (dom.historySearch?.value || '').toLowerCase();
+let historyDetailRequest = 0;
+let historyDetailView = 'request';
+let historyMessages = {};
 
-    let show = true;
-    if (hostFilter && !log.url.toLowerCase().includes(hostFilter)) show = false;
-    if (methodFilter && log.method !== methodFilter) show = false;
-    if (statusFilter) {
-        const sc = parseInt(log.status_code || log.status || 0);
-        if (statusFilter === '2xx' && (sc < 200 || sc >= 300)) show = false;
-        else if (statusFilter === '3xx' && (sc < 300 || sc >= 400)) show = false;
-        else if (statusFilter === '4xx' && (sc < 400 || sc >= 500)) show = false;
-        else if (statusFilter === '5xx' && (sc < 500 || sc >= 600)) show = false;
-    }
-    if (searchFilter) {
-        const text = log.url || '';
-        if (historySearchIsRegex) {
-            try { if (!new RegExp(dom.historySearch.value, 'i').test(text)) show = false; dom.historySearch.setCustomValidity(''); }
-            catch { show = false; dom.historySearch.setCustomValidity('Invalid regular expression'); }
-        } else if (!text.toLowerCase().includes(searchFilter)) show = false;
-    }
-    el.style.display = show ? 'flex' : 'none';
+function closeHistoryDetail() {
+    historyDetailRequest++;
+    state.selectedLogId = null;
+    state.currentLog = null;
+    historyMessages = {};
+    dom.requestDetail.style.display = 'none';
+    dom.requestList.querySelector('.request-item--active')?.classList.remove('request-item--active');
 }
 
-function updateAllHistoryFilters() {
-    $$('.request-item').forEach(el => applyHistoryFilters(el, el._log || {}));
+function setHistoryDetailView(view) {
+    historyDetailView = view;
+    for (const tab of $$('.detail-tab[data-detail]')) {
+        tab.classList.toggle('detail-tab--active', tab.dataset.detail === view);
+        tab.setAttribute('aria-pressed', String(tab.dataset.detail === view));
+    }
+    dom.detailRequest.style.display = view === 'request' ? 'block' : 'none';
+    dom.detailResponse.style.display = view === 'response' ? 'block' : 'none';
+    $('#history-inspector').hidden = view !== 'inspect';
+    $('#btn-history-copy').disabled = !historyMessages[view];
+    $('#btn-history-copy').hidden = view === 'inspect';
+    $('#btn-history-wrap').hidden = view === 'inspect';
 }
 
-// Filter listeners
-if (dom.historyFilterHost) dom.historyFilterHost.addEventListener('input', updateAllHistoryFilters);
-if (dom.historyFilterMethod) dom.historyFilterMethod.addEventListener('change', updateAllHistoryFilters);
-if (dom.historyFilterStatus) dom.historyFilterStatus.addEventListener('change', updateAllHistoryFilters);
-if (dom.historySearch) {
-    let searchDebounce;
-    dom.historySearch.addEventListener('input', () => {
-        clearTimeout(searchDebounce);
-        searchDebounce = setTimeout(updateAllHistoryFilters, 200);
-    });
+function historyHeaderEntries(value) {
+    try {
+        const headers = typeof value === 'string' ? JSON.parse(value) : value;
+        return Object.entries(headers || {});
+    } catch {
+        return [];
+    }
+}
+
+function renderHistoryInspector(log) {
+    const host = $('#history-inspector-fields');
+    host.replaceChildren();
+    const requestHeaders = historyHeaderEntries(log.request_headers);
+    let query = [];
+    try { query = Array.from(new URL(log.url).searchParams); } catch { }
+    const isForm = requestHeaders.some(([name, value]) =>
+        name.toLowerCase() === 'content-type' && String(value).toLowerCase().includes('application/x-www-form-urlencoded'));
+    const fields = [
+        ['Connection', [
+            ['URL', log.url],
+            ['Status', log.status_code ?? 'No response recorded'],
+            ['Captured', log.timestamp ? new Date(log.timestamp * 1000).toLocaleString() : '—'],
+            ['Duration', log.duration_ms == null ? '—' : Math.round(log.duration_ms) + ' ms'],
+            ['Response size', log.content_length == null ? '—' : formatBytes(log.content_length)],
+        ]],
+        ['Query parameters', query],
+        ['Form fields', isForm ? Array.from(new URLSearchParams(log.request_body || '')) : []],
+        ['Request headers', requestHeaders],
+        ['Response headers', historyHeaderEntries(log.response_headers)],
+    ];
+    for (const [title, entries] of fields) {
+        if (!entries.length) continue;
+        const group = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = `${title} (${entries.length})`;
+        group.append(summary);
+        group.open = title === 'Connection' || title === 'Query parameters';
+        const list = document.createElement('dl');
+        for (const [name, value] of entries.slice(0, 200)) {
+            const term = document.createElement('dt');
+            const definition = document.createElement('dd');
+            term.textContent = name;
+            definition.textContent = value;
+            list.append(term, definition);
+        }
+        group.append(list);
+        if (entries.length > 200) {
+            const note = document.createElement('p');
+            note.textContent = 'Showing the first 200 fields. The message view contains the captured text.';
+            group.append(note);
+        }
+        host.append(group);
+    }
+    $('#history-note').value = log.comment || '';
+    $('#history-highlight').value = log.highlight || '';
 }
 
 async function showRequestDetail(logId) {
+    const request = ++historyDetailRequest;
+    const session = state.sessionId;
+    state.selectedLogId = logId;
+    state.currentLog = null;
+    historyMessages = {};
+    dom.requestList.querySelector('.request-item--active')?.classList.remove('request-item--active');
+    dom.requestList.querySelector(`[data-id="${Number(logId)}"]`)?.classList.add('request-item--active');
+    dom.requestDetail.style.display = 'flex';
+    dom.detailRequest.replaceChildren();
+    dom.detailResponse.replaceChildren();
+    $('#history-inspector-fields').replaceChildren();
+    $('#jwt-chip-host').replaceChildren();
+    $('#history-detail-title').textContent = 'Exchange';
+    $('#history-detail-status').textContent = 'Loading exchange…';
+    $('#history-note-form').hidden = true;
+    setHistoryDetailView(historyDetailView);
     try {
-        state.selectedLogId = logId;
         const log = await apiRequest('GET', `/api/logs/http/${logId}`);
-        if (state.selectedLogId !== logId) return;
-        state.selectedLogId = logId;
+        if (historyDetailRequest !== request || state.sessionId !== session) return;
+        if (log.session_id !== session) throw new Error('This request belongs to a different session.');
         state.currentLog = log;
-
-        // Build raw request
-        const reqRaw = buildRawRequest(
-            log.method,
-            log.url,
-            log.request_headers,
-            log.request_body
-        );
-        dom.detailRequest.innerHTML = highlightHttp(reqRaw);
-
-        // Build raw response
-        const resRaw = buildRawResponse(
-            log.status_code,
-            log.response_headers,
-            log.response_body_preview
-        );
-        dom.detailResponse.innerHTML = highlightHttp(resRaw);
-
-        dom.requestDetail.style.display = 'flex';
-
-        // JWT chip — scan headers + body for JWT-looking tokens and expose actions.
-        try { renderJwtChipsForLog(log); } catch (e) { /* noop */ }
+        historyMessages = {
+            request: buildRawRequest(log.method, log.url, Object.fromEntries(historyHeaderEntries(log.request_headers)), log.request_body),
+            response: log.status_code ? buildRawResponse(log.status_code, Object.fromEntries(historyHeaderEntries(log.response_headers)), log.response_body_preview) : '',
+        };
+        for (const [kind, output] of [['request', dom.detailRequest], ['response', dom.detailResponse]]) {
+            const message = historyMessages[kind];
+            if (message && message.length <= 65000) output.innerHTML = highlightHttp(message);
+            else output.textContent = message || 'No response recorded.';
+            output.scrollTop = output.scrollLeft = 0;
+        }
+        $('#history-detail-title').textContent = `${log.method} · #${log.id}`;
+        $('#history-detail-status').textContent = '';
+        $('#history-note-form').hidden = false;
+        renderHistoryInspector(log);
+        setHistoryDetailView(historyDetailView);
+        renderJwtChipsForLog(log);
     } catch (e) {
-        console.error('Failed to load request detail:', e);
+        if (historyDetailRequest === request) $('#history-detail-status').textContent = e.message;
     }
 }
+
+for (const tab of $$('.detail-tab[data-detail]')) {
+    tab.addEventListener('click', () => setHistoryDetailView(tab.dataset.detail));
+}
+
+$('#btn-close-detail').addEventListener('click', closeHistoryDetail);
+$('#btn-history-wrap').addEventListener('click', (e) => {
+    const wrap = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+    e.currentTarget.setAttribute('aria-pressed', String(wrap));
+    $('#detail-content').classList.toggle('history-wrap', wrap);
+});
+$('#btn-history-copy').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(historyMessages[historyDetailView] || '');
+        $('#history-detail-status').textContent = 'Message copied.';
+    } catch (e) {
+        $('#history-detail-status').textContent = e.message;
+    }
+});
+$('#history-note-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const log = state.currentLog;
+    if (!log) return;
+    const button = e.submitter;
+    const meta = {comment: $('#history-note').value, highlight: $('#history-highlight').value};
+    button.disabled = true;
+    try {
+        await apiRequest('POST', `/api/logs/http/${log.id}/meta`, meta);
+        if (state.currentLog === log) {
+            Object.assign(log, meta);
+            $('#history-detail-status').textContent = 'Note saved.';
+            loadHttpHistory({keepScroll: true});
+        }
+    } catch (error) {
+        if (state.currentLog === log) $('#history-detail-status').textContent = error.message;
+    } finally {
+        button.disabled = false;
+    }
+});
 
 const JWT_REGEX = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g;
 
@@ -771,20 +972,15 @@ function findJwtsInLog(log) {
         log.response_body_preview || '',
     ].join('\n');
     const out = new Set();
+    JWT_REGEX.lastIndex = 0;
     let m;
-    while ((m = JWT_REGEX.exec(hay))) out.add(m[0]);
+    while (out.size < 12 && (m = JWT_REGEX.exec(hay))) out.add(m[0]);
     return Array.from(out);
 }
 
 function renderJwtChipsForLog(log) {
-    let host = document.getElementById('jwt-chip-host');
-    if (!host) {
-        host = document.createElement('div');
-        host.id = 'jwt-chip-host';
-        host.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;';
-        dom.requestDetail?.prepend(host);
-    }
-    host.innerHTML = '';
+    const host = $('#jwt-chip-host');
+    host.replaceChildren();
     const tokens = findJwtsInLog(log);
     if (tokens.length === 0) return;
     for (const t of tokens) {
@@ -824,38 +1020,19 @@ document.addEventListener('keydown', (e) => {
     }
     if (meta && e.key.toLowerCase() === 'f') {
         const search = dom.historySearch;
-        if (search) { e.preventDefault(); search.focus(); }
+        if (search && state.sessionId) { e.preventDefault(); activateTab('requests'); search.focus(); }
         return;
     }
-    if (typing) return;
+    if (typing || state.activeTab !== 'requests' || !$('#sitemap-panel').hidden) return;
     if (e.key === 'j' || e.key === 'k') {
         const items = Array.from(dom.requestList?.querySelectorAll('.request-item') || []).filter(x => x.style.display !== 'none');
         if (!items.length) return;
         let idx = items.findIndex(x => x.classList.contains('request-item--active'));
         if (idx < 0) idx = 0;
         else idx = e.key === 'j' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
-        items[idx].click();
+        items[idx].querySelector('.history-row-main').click();
         items[idx].scrollIntoView({ block: 'nearest' });
     }
-});
-
-// ── Regex toggle on history search ───────────────────────────────
-let historySearchIsRegex = false;
-function _wireHistorySearchRegexToggle() {
-    if (!dom.historySearch || dom.historySearch.parentElement.querySelector('#history-regex-toggle')) return;
-    const lbl = document.createElement('label');
-    lbl.style.cssText = 'display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#aaa;margin-left:6px;';
-    lbl.innerHTML = `<input type="checkbox" id="history-regex-toggle"> regex`;
-    dom.historySearch.parentElement.appendChild(lbl);
-    lbl.querySelector('input').addEventListener('change', (e) => {
-        historySearchIsRegex = e.target.checked;
-        updateAllHistoryFilters();
-    });
-}
-setTimeout(_wireHistorySearchRegexToggle, 0);
-
-$('#btn-close-detail').addEventListener('click', () => {
-    dom.requestDetail.style.display = 'none';
 });
 
 $('#btn-send-to-repeater').addEventListener('click', () => {
@@ -868,81 +1045,106 @@ $('#btn-send-to-intruder').addEventListener('click', () => {
     sendToIntruder(state.currentLog);
 });
 
-// ── Site map ─────────────────────────────────────────────────────
-document.getElementById('btn-sitemap')?.addEventListener('click', async () => {
-    const panel = document.getElementById('sitemap-panel');
-    const list = document.getElementById('request-list');
-    if (!panel) return;
-    if (panel.style.display === 'block') {
-        panel.style.display = 'none';
-        if (list) list.style.display = '';
+function closeSiteMap() {
+    $('#sitemap-panel').hidden = true;
+    $('#sitemap-panel').replaceChildren();
+    $('#btn-sitemap').setAttribute('aria-pressed', 'false');
+    dom.requestList.hidden = false;
+    $('.history-columns').hidden = false;
+    $('.history-pagination').hidden = false;
+}
+
+$('#btn-sitemap').addEventListener('click', async (e) => {
+    const panel = $('#sitemap-panel');
+    const button = e.currentTarget;
+    if (!panel.hidden) {
+        closeSiteMap();
         return;
     }
-    if (!state.sessionId) {
-        alert('No active session.');
-        return;
-    }
+    const session = state.sessionId;
+    if (!session) return;
+    button.disabled = true;
     try {
-        const data = await apiRequest('GET', `/api/sitemap?session_id=${state.sessionId}`);
-        panel.innerHTML = '';
-        if (!(data.hosts || []).length) {
-            panel.innerHTML = '<div class="empty-state"><span class="empty-state__text">No traffic yet.</span></div>';
-        } else {
-            for (const host of data.hosts) {
-                const hostDiv = document.createElement('div');
-                hostDiv.className = 'sitemap-host';
-                hostDiv.innerHTML = `
-                    <div>
-                        <span class="sitemap-host__name">▾ ${escHtml(host.host)}</span>
-                        <span class="sitemap-host__count">${host.count} req</span>
-                    </div>
-                `;
-                const epContainer = document.createElement('div');
-                let expanded = true;
-                for (const ep of host.endpoints) {
-                    const epDiv = document.createElement('div');
-                    epDiv.className = 'sitemap-endpoint';
-                    const methods = Object.entries(ep.methods).map(([m, c]) => `${m}×${c}`).join(' ');
-                    const statuses = Object.entries(ep.statuses || {}).map(([s, c]) => {
-                        const cls = getStatusClass(parseInt(s) || 0);
-                        return `<span class="sitemap-endpoint__badge ${cls}">${s}×${c}</span>`;
-                    }).join(' ');
-                    epDiv.innerHTML = `
-                        <span class="sitemap-endpoint__path" title="${escHtml(ep.path)}">${escHtml(ep.path)}</span>
-                        <span class="sitemap-endpoint__badge">${methods}</span>
-                        ${statuses}
-                    `;
-                    epContainer.appendChild(epDiv);
-                }
-                hostDiv.appendChild(epContainer);
-                hostDiv.querySelector('.sitemap-host__name').addEventListener('click', () => {
-                    expanded = !expanded;
-                    epContainer.style.display = expanded ? 'block' : 'none';
-                    hostDiv.querySelector('.sitemap-host__name').textContent = `${expanded ? '▾' : '▸'} ${host.host}`;
-                });
-                panel.appendChild(hostDiv);
-            }
+        const data = await apiRequest('GET', `/api/sitemap?session_id=${encodeURIComponent(session)}`);
+        if (state.sessionId !== session) return;
+        panel.replaceChildren();
+        const description = document.createElement('p');
+        description.className = 'history-map-description';
+        description.textContent = data.hosts.length
+            ? `${data.total_hosts} hosts in recent traffic. Select a path to view its requests.`
+            : 'No traffic captured for this session.';
+        panel.append(description);
+        for (const host of data.hosts.slice(0, 200)) {
+            const group = document.createElement('details');
+            const title = document.createElement('summary');
+            title.textContent = `${host.host || '(Unknown host)'} · ${host.count} requests`;
+            group.append(title);
+            group.addEventListener('toggle', () => {
+                if (!group.open || group.children.length > 1) return;
+                const entries = document.createElement('div');
+                let shown = 0;
+                const more = document.createElement('button');
+                more.className = 'btn btn--ghost btn--sm';
+                more.textContent = 'Show more paths';
+                const appendPaths = () => {
+                    for (const endpoint of host.endpoints.slice(shown, shown + 100)) {
+                        const row = document.createElement('button');
+                        row.className = 'history-map-path';
+                        row.textContent = `${endpoint.path} · ${endpoint.count}`;
+                        row.addEventListener('click', () => {
+                            historyEndpoint = {host: host.host, path: endpoint.path};
+                            dom.historyFilterHost.value = host.host;
+                            closeSiteMap();
+                            refreshHistoryFilters();
+                        });
+                        entries.insertBefore(row, more);
+                    }
+                    shown += 100;
+                    more.hidden = shown >= host.endpoints.length;
+                };
+                entries.append(more);
+                more.addEventListener('click', appendPaths);
+                appendPaths();
+                group.append(entries);
+            });
+            panel.append(group);
         }
-        if (list) list.style.display = 'none';
-        panel.style.display = 'block';
-    } catch (e) {
-        alert('Sitemap failed: ' + e.message);
+        if (data.hosts.length > 200) description.textContent += ' Showing the first 200 hosts.';
+        dom.requestList.hidden = true;
+        $('.history-columns').hidden = true;
+        $('.history-pagination').hidden = true;
+        panel.hidden = false;
+        button.setAttribute('aria-pressed', 'true');
+    } catch (error) {
+        setHistoryStatus(error.message);
+    } finally {
+        button.disabled = false;
     }
 });
 
 // HAR export
-document.getElementById('btn-export-har')?.addEventListener('click', async () => {
-    if (!state.sessionId) { alert('No active session.'); return; }
+$('#btn-export-har').addEventListener('click', async (event) => {
+    if (!state.sessionId) return;
+    const button = event.currentTarget;
+    const filename = `${state.sessionName || 'greytab'}-${new Date().toISOString().slice(0, 10)}.har`;
+    button.disabled = true;
+    button.textContent = 'Exporting…';
     try {
-        const data = await apiRequest('GET', `/api/export/traffic.har?session_id=${state.sessionId}`);
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${state.sessionName || 'greytab'}-${new Date().toISOString().slice(0, 10)}.har`;
-        a.click();
-        URL.revokeObjectURL(url);
-    } catch (e) { alert('HAR export failed: ' + e.message); }
+        const query = new URLSearchParams({session_id: state.sessionId});
+        const response = await fetch(`${API_BASE}/api/export/traffic.har?${query}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (error) {
+        alert('HAR export failed: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.textContent = 'HAR';
+    }
 });
 
 // Findings report (HTML)

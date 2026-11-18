@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-11-18
+
+- Search and filter the full recorded HTTP session while rendering 200 requests per page. Pause live results, browse older pages and open exchanges directly from Site Map.
+- Inspect headers, decoded parameters and connection details in History. Edit persistent notes and highlights, copy messages and toggle line wrapping.
+- Build HAR incrementally with repeated query parameters and UTF-8 body sizes. Render only the selected Repeater response view and keep edits in progress when a response arrives.
+
+- Allow immediate restarts after ordinary TCP connections close. The launcher still checks for active listeners.
+
 ## 0.3.0 — 2026-11-18
 
 ### Reliability

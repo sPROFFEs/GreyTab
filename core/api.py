@@ -14,7 +14,7 @@ from typing import Any, Dict, Set, Optional, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, File, UploadFile, Request
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pydantic import BaseModel
@@ -586,12 +586,23 @@ async def get_http_logs(
     after_id: int = Query(0, ge=0),
     summary: bool = False,
     offset: int = Query(0, ge=0),
+    before_id: int = Query(0, ge=0),
+    search: str = Query("", max_length=500),
+    status_class: int = Query(0, ge=0, le=5),
+    mime: str = Query("", max_length=160),
+    annotated: bool = False,
+    exact_host: str = Query("", max_length=255),
+    path: str = Query("", max_length=8192),
 ):
     """Get HTTP traffic logs."""
     sid = session_id or current_session_id
     if not sid:
         raise HTTPException(status_code=400, detail="No active session")
-    return await db.get_http_logs(sid, limit, host, method, status, after_id, summary, offset)
+    return await db.get_http_logs(
+        sid, limit, host, method, status, after_id, summary, offset,
+        before_id=before_id, search=search, status_class=status_class,
+        mime=mime, annotated=annotated, exact_host=exact_host, path=path,
+    )
 
 
 @app.get("/api/logs/http/{log_id}")
@@ -1412,8 +1423,23 @@ async def export_traffic_har(session_id: Optional[str] = None, limit: int = 5000
     if not sid:
         raise HTTPException(status_code=400, detail="No session")
     session = await db.get_session(sid) or {}
-    logs = await db.get_http_logs(sid, limit=min(max(1, limit), 50000))
-    return gx.http_logs_to_har(session, logs)
+    async def stream():
+        metadata = json.dumps(gx.har_log_metadata(session), ensure_ascii=False)
+        yield '{"log":' + metadata[:-1] + ',"entries":['
+        remaining = min(max(1, limit), 50000)
+        before_id = 0
+        while remaining:
+            batch = await db.get_http_logs(sid, limit=min(remaining, 16), before_id=before_id)
+            if not batch:
+                break
+            for log in batch:
+                separator = ',' if before_id else ''
+                yield separator + json.dumps(gx.http_log_to_har_entry(log), ensure_ascii=False)
+                before_id = log["id"]
+                remaining -= 1
+        yield ']}}'
+
+    return StreamingResponse(stream(), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1438,19 +1464,20 @@ async def sitemap(session_id: Optional[str] = None):
     sid = session_id or current_session_id
     if not sid:
         raise HTTPException(status_code=400, detail="No session")
-    logs = await db.get_http_logs(sid, limit=20000)
+    logs = await db.get_sitemap_counts(sid)
     tree: Dict[str, Dict[str, Any]] = {}
     for log in logs:
         host = log.get("host") or ""
-        path = log.get("path") or "/"
+        path = log.get("endpoint") or "/"
         method = log.get("method") or "GET"
         status = int(log.get("status_code") or 0)
         host_node = tree.setdefault(host, {"host": host, "endpoints": {}})
         ep = host_node["endpoints"].setdefault(path, {"path": path, "methods": {}, "count": 0, "statuses": {}})
-        ep["count"] += 1
-        ep["methods"][method] = ep["methods"].get(method, 0) + 1
+        count = log["count"]
+        ep["count"] += count
+        ep["methods"][method] = ep["methods"].get(method, 0) + count
         if status:
-            ep["statuses"][str(status)] = ep["statuses"].get(str(status), 0) + 1
+            ep["statuses"][str(status)] = ep["statuses"].get(str(status), 0) + count
     # Flatten endpoints back to list
     result = []
     for h in sorted(tree.keys()):

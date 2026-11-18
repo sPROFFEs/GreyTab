@@ -21,6 +21,7 @@ function handleWsEvent(event) {
 
     switch (type) {
         case 'connected':
+            historyDirty = true;
             state.sessionId = data.session_id;
             state.proxyRunning = data.proxy_running;
             if (Number.isFinite(Number(data.proxy_port))) state.proxyPort = Number(data.proxy_port);
@@ -552,9 +553,8 @@ function showActiveSession(name, id) {
     const changed = Boolean(id && id !== state.viewSessionId);
     state.viewSessionId = id || state.sessionId;
     if (changed) {
-        state.currentLog = null; state.selectedLogId = null; state.trafficItems = []; historyCursor = 0;
-        if (dom.requestDetail) dom.requestDetail.style.display = 'none';
-        dom.requestList.replaceChildren();
+        state.trafficItems = [];
+        resetHistorySession();
         state.scanner.findings = [];
         dom.scannerFindings.innerHTML = '<div class="empty-state">No findings in this workspace.</div>';
         dom.scannerCount.textContent = '0';
@@ -566,7 +566,7 @@ function showActiveSession(name, id) {
     if (dom.appContainer) dom.appContainer.style.display = 'flex';
     if (dom.activeSessionName) dom.activeSessionName.textContent = state.sessionName;
     if (state.sessionId) {
-        loadHttpHistory();
+        if (changed || state.activeTab === 'requests') openHistory();
         const requestedSessionId = state.sessionId;
         apiRequest('GET', `/api/sessions/${requestedSessionId}/stats`).then(stats => {
             if (state.sessionId !== requestedSessionId) return;

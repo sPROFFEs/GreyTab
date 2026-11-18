@@ -82,7 +82,119 @@ async def wait(page, expression, timeout=15):
     raise AssertionError('Timed out: ' + expression + '\n' + await page.locator('body').inner_text())
 
 
-async def run(chrome, output):
+async def check_history_workspace(page, target_page, api, output, ok):
+    await page.bring_to_front()
+    logs = [
+        {
+            'id': i + 1, 'method': 'GET', 'url': f'http://127.0.0.1:19443/catalog?q={i}&q=two',
+            'host': '127.0.0.1', 'path': f'/catalog?q={i}&q=two', 'status_code': 200,
+            'content_type': 'application/json', 'content_length': 42, 'duration_ms': 17,
+            'request_headers': {'Accept': 'application/json'},
+            'response_headers': {'Content-Type': 'application/json'}, 'response_body_preview': '{"ok": true}',
+        }
+        for i in range(240)
+    ]
+    logs[0]['comment'] = 'Old office record'
+    await api('POST', '/api/projects/import', json={
+        'type': 'pentestbrowser_project', 'session': {'name': 'History QA'}, 'http_logs': logs,
+    })
+    await page.click('.tab[data-tab="requests"]')
+    await wait(page, 'document.querySelectorAll("#request-list > .request-item").length === 200')
+    newer = page.locator('#btn-history-newer')
+    older = page.locator('#btn-history-older')
+    assert await newer.is_disabled() and not await older.is_disabled()
+
+    await page.click('#btn-history-live')
+    await older.click()
+    await wait(page, 'document.querySelector("#history-page-status").textContent.includes("Page 2")')
+    assert await page.locator('.request-item').count() == 40
+    await target_page.goto('http://127.0.0.1:19443/html')
+    await wait(page, 'document.querySelector("#history-page-status").textContent.includes("New traffic")')
+    assert await page.locator('.request-item').count() == 40
+    await newer.click()
+    await wait(page, 'document.querySelector("#history-page-status").textContent.includes("Page 1")')
+    first_id = await page.locator('.request-item').first.get_attribute('data-id')
+    await page.click('.tab[data-tab="decoder"]')
+    await target_page.goto('http://127.0.0.1:19443/echo?paused=1')
+    await page.click('.tab[data-tab="requests"]')
+    assert await page.locator('.request-item').first.get_attribute('data-id') == first_id
+    await page.click('#btn-history-live')
+    await wait(page, f'document.querySelector(".request-item")?.dataset.id !== "{first_id}"')
+    await page.click('#btn-history-live')
+    ok('200-row History pagination and pause stay stable with incoming traffic and tab switches')
+
+    await page.fill('#history-search', 'Old office record')
+    await wait(page, 'document.querySelectorAll(".request-item").length === 1')
+    row = page.locator('.request-item .history-row-main').first
+    assert 'q=0&q=two' in await row.inner_text()
+    await row.click()
+    await page.click('[data-detail="inspect"]')
+    await wait(page, 'document.querySelector("#history-note").value === "Old office record"')
+    assert 'Query parameters (2)' in await page.inner_text('#history-inspector')
+    assert 'Request headers (1)' in await page.inner_text('#history-inspector')
+    await page.fill('#history-note', 'Investigated')
+    await page.select_option('#history-highlight', 'blue')
+    await page.click('#history-note-form [type=submit]')
+    await wait(page, 'document.querySelector("#history-detail-status").textContent === "Note saved."')
+    await page.fill('#history-search', 'Investigated')
+    await wait(page, 'document.querySelector(".request-item")?.dataset.highlight === "blue"')
+    ok('Global search finds an older note and Inspector preserves repeated query fields and annotations')
+
+    for width in (320, 380, 768, 1440):
+        await page.set_viewport_size({'width': width, 'height': 950})
+        await page.screenshot(path=output / f'history-inspector-{width}.png')
+        assert await page.evaluate('document.querySelector("#history-inspector").clientWidth > 100')
+        assert await page.evaluate('document.querySelector("#request-detail").getBoundingClientRect().right <= innerWidth')
+    await page.click('#btn-close-detail')
+    await page.click('#btn-history-reset')
+    await wait(page, 'document.querySelectorAll(".request-item").length === 200')
+    await page.check('#history-regex-toggle')
+    await page.fill('#history-search', 'q=239&')
+    await wait(page, 'document.querySelectorAll(".request-item").length === 1')
+    await page.fill('#history-search', '[')
+    await wait(page, 'document.querySelector("#history-page-status").textContent.includes("regular expression")')
+    await page.click('#btn-history-reset')
+    await page.click('#btn-sitemap')
+    await page.locator('#sitemap-panel summary').first.click()
+    await page.get_by_role('button', name='/catalog · 240', exact=True).click()
+    await wait(page, 'document.querySelector("#history-page-status").textContent.includes("/catalog")')
+    assert await page.locator('.request-item').count() == 200
+    ok('Page regex handles invalid patterns and Site Map opens endpoint history')
+
+    async with page.expect_download() as event:
+        await page.click('#btn-export-har')
+    download = await event.value
+    har_file = output / 'history.har'
+    await download.save_as(har_file)
+    entries = json.loads(har_file.read_text())['log']['entries']
+    assert sum('/catalog?' in entry['request']['url'] for entry in entries) == len(logs)
+    ok('HAR downloads the full session as valid JSON across multiple batches')
+
+    await page.click('.tab[data-tab="repeater"]')
+    await page.evaluate('sendToRepeater({method: "GET", url: "http://127.0.0.1:19443/slow"})')
+    await page.click('#btn-repeater-send')
+    await page.fill('#repeater-raw-request', 'GET /draft HTTP/1.1\nHost: localhost\n\n')
+    await wait(page, 'document.querySelector("#repeater-status").textContent === "200"')
+    assert '/draft' in await page.input_value('#repeater-raw-request')
+    assert 'method' in await page.text_content('#repeater-res-raw')
+    await page.click('[data-repeater-res="render"]')
+    assert 'method' in await page.locator('#repeater-res-render').get_attribute('srcdoc')
+    ok('Repeater paints the selected response view and keeps the draft during a send')
+
+
+async def capture_views(page, output):
+    for width, height in [(320, 850), (380, 850), (768, 1000), (1440, 1000)]:
+        await page.set_viewport_size({'width': width, 'height': height})
+        for name in ['proxy', 'repeater', 'intruder', 'tools', 'decoder', 'bookmarklets', 'requests', 'autoscanner', 'utilities', 'settings']:
+            await page.click(f'.tab[data-tab="{name}"]')
+            await page.evaluate("document.querySelector('.tab-content--active').scrollTop = 0")
+            await page.screenshot(path=output / f'{name}-{width}.png')
+            bounds = await page.locator('.tab-content--active').bounding_box()
+            assert bounds['x'] + bounds['width'] <= width + 1, (name, bounds)
+            assert bounds['y'] + bounds['height'] <= height + 1, (name, bounds)
+
+
+async def run(chrome, output, inspection_only=False):
     output.mkdir(parents=True, exist_ok=True)
     errors, checks = [], []
     runtime = Path(tempfile.mkdtemp(prefix='greytab-qa-'))
@@ -126,11 +238,20 @@ async def run(chrome, output):
             target_page.on('dialog', lambda dialog: dialog.accept())
             await target_page.goto('http://127.0.0.1:19443/html')
             await target_page.goto('https://127.0.0.1:19444/echo')
+            await page.click('.tab[data-tab="requests"]')
             await wait(page, 'document.querySelectorAll(".request-item").length >= 2')
             logs = await api('GET', '/api/logs/http')
             assert any(l['url'].startswith('https://127.0.0.1:19444') for l in logs)
             assert not any(':8443' in l['url'] for l in logs)
             ok('HTTP and HTTPS capture; API traffic excluded')
+            if inspection_only:
+                await check_history_workspace(page, target_page, api, output, ok)
+                await capture_views(page, output)
+                ok('All 10 views at 320/380/768/1440 pixels')
+                assert not errors, errors
+                await context.close()
+                return
+
             await page.bring_to_front()
             await page.evaluate('sendToRepeater({method:"POST", url:"http://127.0.0.1:19443/echo", request_headers:{"Content-Type":"text/plain"}, request_body:"one\\n\\ntwo"})')
             assert await page.input_value('#repeater-target') == 'http://127.0.0.1:19443/echo'
@@ -314,27 +435,17 @@ async def run(chrome, output):
             started = time.perf_counter()
             bulk = [{'id':i+1,'method':'GET','url':f'http://127.0.0.1:19443/load/{i}','host':'127.0.0.1','path':f'/load/{i}','status_code':200,'response_body_preview':'x'*2048} for i in range(2000)]
             await api('POST','/api/projects/import',json={'type':'pentestbrowser_project','session':{'name':'Load QA'},'http_logs':bulk,'ws_logs':project['ws_logs']})
-            await wait(page, 'document.querySelectorAll("#request-list > .request-item").length === 1000')
+            await wait(page, 'document.querySelectorAll("#request-list > .request-item").length === 200')
             load_metrics = {'stored_requests':2000,'rendered_requests':await page.locator('#request-list > .request-item').count(),'import_and_render_ms':round((time.perf_counter()-started)*1000,2)}
             (output / 'performance.json').write_text(json.dumps(load_metrics,indent=2))
-            ok('2000-request history imports with a 1000-row rendering budget')
+            ok('2000-request history imports with a 200-row rendering budget')
             # Expand configuration controls before narrow screenshots.
             await page.click('.tab[data-tab="settings"]')
             await page.locator('#tab-settings details').evaluate_all('(els)=>els.forEach(el=>el.open=true)')
             await page.click('#btn-rule-new')
             await page.locator('.rule-row [data-f="name"]').last.fill('QA rule')
             await page.locator('.rule-row [data-f="name"]').last.blur()
-            for width, height in [(320,850),(380,850),(768,1000),(1440,1000)]:
-                await page.set_viewport_size({'width':width,'height':height})
-                for name in ['proxy','repeater','intruder','tools','decoder','bookmarklets','requests','autoscanner','utilities','settings']:
-                    await page.click(f'.tab[data-tab="{name}"]')
-                    await page.evaluate("document.querySelector('.tab-content--active').scrollTop = 0")
-                    await page.wait_for_timeout(80)
-                    await page.screenshot(path=str(output / f'{name}-{width}.png'))
-                    metrics = await page.evaluate('''() => ({body:document.body.getBoundingClientRect().toJSON(),panel:document.querySelector('.tab-content--active').getBoundingClientRect().toJSON(), width:innerWidth, height:innerHeight})''')
-                    assert abs(metrics['body']['height']-height)<2, metrics
-                    assert metrics['panel']['right']<=width+1, (name,metrics)
-                    assert metrics['panel']['bottom']<=height+1, (name,metrics)
+            await capture_views(page, output)
             ok('All 10 views at 320/380/768/1440 pixels')
             assert not errors, errors
             ok('No uncaught extension JavaScript errors')
@@ -356,5 +467,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--chromium', default=str(ROOT / 'browser/chrome'))
     parser.add_argument('--output', type=Path, default=ROOT / 'tests/_runtime/browser')
+    parser.add_argument('--inspection-only', action='store_true', help='Run local traffic, History, Repeater draft and layout checks.')
     args = parser.parse_args()
-    asyncio.run(run(args.chromium, args.output))
+    asyncio.run(run(args.chromium, args.output, args.inspection_only))

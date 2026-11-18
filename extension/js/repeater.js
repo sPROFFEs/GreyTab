@@ -137,7 +137,7 @@ function persistActiveRepeaterEditor() {
     const tab = getActiveRepeaterTab();
     if (!tab) return;
     tab.raw_request = dom.repeaterRawRequest?.value || '';
-    tab.target_url = $('#repeater-target')?.value.trim() || tab.target_url || '';
+    tab.target_url = $('#repeater-target')?.value.trim() ?? tab.target_url ?? '';
     tab.follow_redirect = Boolean(dom.repeaterFollowRedirect?.checked);
 }
 
@@ -147,17 +147,28 @@ function applyRepeaterTabToEditor(tab) {
     if (dom.btnRepeaterSend) dom.btnRepeaterSend.disabled = Boolean(tab.sending);
     if (dom.repeaterRawRequest) dom.repeaterRawRequest.value = tab.raw_request || '';
     if (dom.repeaterFollowRedirect) dom.repeaterFollowRedirect.checked = Boolean(tab.follow_redirect);
+    renderRepeaterRequestPreview();
+    renderRepeaterResponse(tab);
+}
+
+function renderRepeaterResponse(tab = getActiveRepeaterTab()) {
+    if (!tab) return;
     if (dom.repeaterStatus) {
         dom.repeaterStatus.className = tab.status_class || 'status-badge';
         dom.repeaterStatus.textContent = tab.status_text || '---';
     }
     if (dom.repeaterTime) dom.repeaterTime.textContent = tab.time_text || '0ms';
-    if (dom.repeaterResRaw) {
-        dom.repeaterResRaw.innerHTML = tab.response_raw ? highlightHttp(tab.response_raw) : '';
+    const view = $('.detail-tab--active[data-repeater-res]')?.dataset.repeaterRes || 'raw';
+    if (view === 'diff') {
+        renderRepeaterDiff();
+    } else if (view === 'render' && dom.repeaterResRender) {
+        const preview = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">` + (tab.response_render || '');
+        if (dom.repeaterResRender.srcdoc !== preview) dom.repeaterResRender.srcdoc = preview;
+    } else if (dom.repeaterResRaw) {
+        const raw = tab.response_raw || '';
+        if (raw.length > 65000 || !raw) dom.repeaterResRaw.textContent = raw;
+        else dom.repeaterResRaw.innerHTML = highlightHttp(raw);
     }
-    if (dom.repeaterResRender) dom.repeaterResRender.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">` + (tab.response_render || '');
-    renderRepeaterRequestPreview();
-    renderRepeaterDiff();
 }
 
 function renderRepeaterTabbar() {
@@ -314,8 +325,11 @@ function initRepeaterWorkspace() {
 
     dom.repeaterRawRequest?.addEventListener('input', () => {
         persistActiveRepeaterEditor();
-        renderRepeaterTabbar();
         renderRepeaterRequestPreview();
+        scheduleWorkspaceSave();
+    });
+    $('#repeater-target')?.addEventListener('input', () => {
+        persistActiveRepeaterEditor();
         scheduleWorkspaceSave();
     });
     dom.repeaterFollowRedirect?.addEventListener('change', () => {
@@ -363,7 +377,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
     tab.status_class = 'status-badge';
     tab.status_text = 'Sending...';
     tab.time_text = '';
-    applyRepeaterTabToEditor(tab);
+    renderRepeaterResponse(tab);
 
     const parsed = parseRawRequest(tab.raw_request);
     const normalizedUrl = normalizeParsedRequestUrl(parsed, tab.target_url || '');
@@ -373,7 +387,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.status_text = 'Error';
         tab.time_text = '0ms';
         tab.response_raw = 'Invalid request line: missing URL.';
-        applyRepeaterTabToEditor(tab);
+        renderRepeaterResponse(tab);
         return;
     }
 
@@ -402,7 +416,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.response_raw = buildRawResponse(res.status_code, res.headers, res.body);
         tab.response_render = res.body || '';
         if (res.body_truncated) tab.response_raw += '\n[Response preview limited to 1 MiB]';
-        if (state.repeater.activeTabId === tab.id) applyRepeaterTabToEditor(tab);
+        if (state.repeater.activeTabId === tab.id) renderRepeaterResponse(tab);
         renderRepeaterTabbar();
     } catch (err) {
         console.error('Repeater error:', err);
@@ -411,7 +425,7 @@ dom.btnRepeaterSend?.addEventListener('click', async () => {
         tab.time_text = '0ms';
         tab.response_raw = String(err.message || err);
         tab.response_render = '';
-        if (state.repeater.activeTabId === tab.id) applyRepeaterTabToEditor(tab);
+        if (state.repeater.activeTabId === tab.id) renderRepeaterResponse(tab);
     } finally {
         tab.sending = false;
         if (state.repeater.activeTabId === tab.id) dom.btnRepeaterSend.disabled = false;

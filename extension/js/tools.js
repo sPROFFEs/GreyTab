@@ -152,8 +152,12 @@ async function handleContextAction(action) {
                     meta.highlight = value;
                 }
                 await apiRequest('POST', `/api/logs/http/${flowId}/meta`, meta);
-                const row = dom.requestList.querySelector(`[data-id="${flowId}"]`);
-                if (row) { row.dataset.highlight = meta.highlight; row.title = meta.comment; }
+                if (Number(state.currentLog?.id) === Number(flowId)) {
+                    Object.assign(state.currentLog, meta);
+                    $('#history-note').value = meta.comment;
+                    $('#history-highlight').value = meta.highlight;
+                }
+                loadHttpHistory({keepScroll: true});
             } catch (e) { alert(e.message); }
             break;
         }
@@ -257,18 +261,15 @@ async function handleContextAction(action) {
         }
 
         case 'delete-log': {
+            const sessionId = state.sessionId;
             const id = Number(flowId || 0);
             if (!id) break;
             try {
-                await apiRequest('DELETE', `/api/logs/http/${id}`);
+                await apiRequest('DELETE', `/api/logs/http/${id}?session_id=${encodeURIComponent(sessionId)}`);
+                if (state.sessionId !== sessionId) return;
                 state.trafficItems = state.trafficItems.filter((x) => Number(x.id || 0) !== id);
-                const hEl = dom.requestList?.querySelector(`.request-item[data-id="${id}"]`);
-                if (hEl) hEl.remove();
-                if (state.currentLog && Number(state.currentLog.id || 0) === id) {
-                    state.currentLog = null;
-                    state.selectedLogId = null;
-                    if (dom.requestDetail) dom.requestDetail.style.display = 'none';
-                }
+                if (Number(state.selectedLogId) === id) closeHistoryDetail();
+                loadHttpHistory({keepScroll: true});
             } catch (e) {
                 console.error('Failed to delete log:', e);
             }

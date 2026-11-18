@@ -834,26 +834,35 @@
               </label>
             </h3>
 
-            <div class="traffic-filters">
-              <input type="text" id="history-search" class="input input--sm" placeholder="Search loaded URLs..."
-                style="width:160px;" />
-              <input type="text" id="history-filter-host" class="input input--sm" placeholder="Host..."
-                style="width:90px;" />
-              <select id="history-filter-method" class="input input--sm">
+            <div class="history-filters">
+              <input type="search" id="history-search" class="input input--sm" maxlength="500"
+                aria-label="Search URLs and notes" placeholder="Search URLs and notes" />
+              <input type="search" id="history-filter-host" class="input input--sm"
+                aria-label="Filter by host" placeholder="Host" />
+              <select id="history-filter-method" class="input input--sm" aria-label="Filter by method">
                 <option value="">Method</option>
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
-                <option value="PUT">PUT</option>
-                <option value="DELETE">DELETE</option>
-                <option value="PATCH">PATCH</option>
+                <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option>
+                <option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
               </select>
-              <select id="history-filter-status" class="input input--sm">
+              <select id="history-filter-status" class="input input--sm" aria-label="Filter by status">
                 <option value="">Status</option>
-                <option value="2xx">2xx</option>
-                <option value="3xx">3xx</option>
-                <option value="4xx">4xx</option>
-                <option value="5xx">5xx</option>
+                <option value="2xx">2xx</option><option value="3xx">3xx</option>
+                <option value="4xx">4xx</option><option value="5xx">5xx</option>
               </select>
+              <select id="history-filter-mime" class="input input--sm" aria-label="Filter by content type">
+                <option value="">Content type</option><option value="html">HTML</option>
+                <option value="json">JSON</option><option value="xml">XML</option>
+                <option value="javascript">JavaScript</option><option value="css">CSS</option>
+                <option value="image/">Images</option>
+              </select>
+              <label class="history-check"><input type="checkbox" id="history-filter-annotated"> Annotated</label>
+              <label class="history-check" title="Apply a regular expression to URLs on this page">
+                <input type="checkbox" id="history-regex-toggle"> Regex on page
+              </label>
+            </div>
+            <div class="history-actions">
+              <button class="btn btn--ghost btn--sm" id="btn-history-reset">Reset filters</button>
+              <button class="btn btn--ghost btn--sm" id="btn-history-live" aria-pressed="true">Live</button>
               <button class="btn btn--ghost btn--sm" id="btn-refresh-history" title="Refresh">
                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
                   <polyline points="23 4 23 10 17 10"></polyline>
@@ -866,12 +875,22 @@
               <button class="btn btn--ghost btn--sm" id="btn-clear-history" title="Clear History">Clear</button>
             </div>
           </div>
-          <div class="request-list" id="request-list">
+          <div class="history-columns" aria-hidden="true">
+            <span>Method</span><span>Path / Host</span><span>Status</span><span>Size</span><span>Time</span><span></span><span></span>
+          </div>
+          <div class="request-list" id="request-list" aria-label="HTTP requests">
             <div class="empty-state">
               <span class="empty-state__text">No requests logged yet.</span>
             </div>
           </div>
-          <div id="sitemap-panel" style="display:none;padding:6px 10px;overflow:auto;"></div>
+          <div id="sitemap-panel" hidden></div>
+          <div class="history-pagination">
+            <span id="history-page-status" role="status"></span>
+            <div>
+              <button class="btn btn--ghost btn--sm" id="btn-history-newer" disabled>Newer</button>
+              <button class="btn btn--ghost btn--sm" id="btn-history-older" disabled>Older</button>
+            </div>
+          </div>
         </div>
 
         <!-- Findings Popup (centered internal popup) -->
@@ -897,7 +916,7 @@
         <!-- Detail Pane -->
         <div class="history-detail-pane" id="request-detail" style="display:none;">
           <div class="section__header" style="padding: 0.5rem 1rem;">
-            <h3>Detail</h3>
+            <h3 id="history-detail-title">Exchange</h3>
             <div class="detail-actions">
               <button class="btn btn--ghost btn--sm" id="btn-close-detail">Close</button>
             </div>
@@ -907,18 +926,38 @@
             <div class="detail-tabs">
               <button class="detail-tab detail-tab--active" data-detail="request">Request</button>
               <button class="detail-tab" data-detail="response">Response</button>
+              <button class="detail-tab" data-detail="inspect">Inspect</button>
             </div>
             <div class="detail-actions-row">
               <button class="btn btn--ghost btn--xs" id="btn-send-to-repeater">To Repeater</button>
               <button class="btn btn--ghost btn--xs" id="btn-send-to-intruder">To Intruder</button>
               <button class="btn btn--ghost btn--xs" id="btn-send-to-tool">To Tool</button>
               <button class="btn btn--ghost btn--xs" id="btn-add-finding">Add Finding</button>
+              <button class="btn btn--ghost btn--xs" id="btn-history-copy">Copy message</button>
+              <button class="btn btn--ghost btn--xs" id="btn-history-wrap" aria-pressed="false">Wrap</button>
             </div>
           </div>
 
+          <div id="history-detail-status" role="status" class="history-detail-status"></div>
+          <div id="jwt-chip-host" class="history-token-list"></div>
           <div class="detail-content-flex" id="detail-content">
             <pre id="detail-request" class="code-block"></pre>
             <pre id="detail-response" class="code-block" style="display:none;"></pre>
+            <div id="history-inspector" hidden>
+              <form id="history-note-form">
+                <label for="history-note">Note</label>
+                <textarea id="history-note" class="input" rows="2" maxlength="4000"></textarea>
+                <label for="history-highlight">Highlight</label>
+                <select id="history-highlight" class="input input--sm">
+                  <option value="">None</option><option value="red">Red</option>
+                  <option value="orange">Orange</option><option value="yellow">Yellow</option>
+                  <option value="green">Green</option><option value="blue">Blue</option>
+                  <option value="purple">Purple</option>
+                </select>
+                <button class="btn btn--primary btn--sm" type="submit">Save note</button>
+              </form>
+              <div id="history-inspector-fields"></div>
+            </div>
           </div>
         </div>
       </div>

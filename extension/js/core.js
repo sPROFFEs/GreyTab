@@ -464,7 +464,7 @@ function activateTab(tabId) {
     state.activeTab = tabId;
     scheduleWorkspaceSave();
 
-    if (tabId === 'requests') loadHttpHistory();
+    if (tabId === 'requests') openHistory();
     if (tabId === 'tools') loadTools();
     if (tabId === 'autoscanner' && typeof refreshScanMacros === 'function') refreshScanMacros().catch(() => {});
     if (tabId === 'bookmarklets') {
@@ -480,17 +480,6 @@ $$('.tab').forEach((tab) => {
     });
 });
 
-// Detail tabs (History Request/Response)
-$$('.detail-tab[data-detail]').forEach((tab) => {
-    tab.addEventListener('click', () => {
-        tab.parentElement.querySelectorAll('.detail-tab').forEach(t => t.classList.remove('detail-tab--active'));
-        tab.classList.add('detail-tab--active');
-        const which = tab.dataset.detail;
-        dom.detailRequest.style.display = which === 'request' ? 'block' : 'none';
-        dom.detailResponse.style.display = which === 'response' ? 'block' : 'none';
-    });
-});
-
 // Repeater response tabs (Raw/Render/Diff)
 $$('.detail-tab[data-repeater-res]').forEach((tab) => {
     tab.addEventListener('click', () => {
@@ -502,8 +491,8 @@ $$('.detail-tab[data-repeater-res]').forEach((tab) => {
         const diffEl = document.getElementById('repeater-res-diff');
         if (diffEl) {
             diffEl.style.display = which === 'diff' ? 'block' : 'none';
-            if (which === 'diff') renderRepeaterDiff();
         }
+        renderRepeaterResponse();
     });
 });
 

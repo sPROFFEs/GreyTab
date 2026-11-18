@@ -247,7 +247,7 @@ async function init() {
 
     await syncScannerStatusFromBackend();
     await refreshProxyRuntimeStatus();
-    await loadHttpHistory();
+    openHistory();
     window.addEventListener('beforeunload', () => {
         persistWorkspaceState().catch(() => { });
     });
@@ -258,8 +258,9 @@ async function init() {
         refreshHealth();
         refreshProxyRuntimeStatus();
         updateRunningTools();
-        if (state.sessionId && (state.activeTab === 'requests' || dom.requestList?.children?.length <= 1)) {
-            loadHttpHistory(true);
+        if (!state.connected && historyLive && historyPages.length === 1 &&
+            state.activeTab === 'requests' && dom.requestList.scrollTop === 0) {
+            loadHttpHistory({keepScroll: true});
         }
     }, 5000);
 

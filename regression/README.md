@@ -12,8 +12,8 @@ Start authorized local DVWA, OWASP Juice Shop and/or WebGoat installations. Copy
 .venv/bin/python scripts/scanner_regression.py \
   --api-base http://127.0.0.1:8443 \
   --baseline regression/baseline.example.json \
-  --release v0.3.0 \
-  --output regression/reports/v0.3.0.json
+  --release v0.3.1 \
+  --output regression/reports/v0.3.1.json
 ```
 
 Select a subset with `--profiles dvwa,juice_shop`. `--timeout` controls the per-profile timeout. OAST profiles require a reachable callback URL. Use fixture data and never commit real authentication tokens in baselines/reports.

@@ -454,71 +454,81 @@ def findings_to_markdown(session: Dict[str, Any], findings: List[Dict[str, Any]]
     return "\n".join(out)
 
 
-def http_logs_to_har(session: Dict[str, Any], logs: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Convert http_log rows to a HAR 1.2 archive."""
-    entries: List[Dict[str, Any]] = []
-    for log in logs:
-        try:
-            req_headers = json.loads(log.get("request_headers") or "{}")
-        except Exception:
-            req_headers = {}
-        try:
-            resp_headers = json.loads(log.get("response_headers") or "{}")
-        except Exception:
-            resp_headers = {}
-        ts = float(log.get("timestamp") or 0.0)
-        started = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + ".000Z"
-        method = log.get("method") or "GET"
-        url = log.get("url") or ""
-        body = log.get("request_body") or ""
-        post_data = None
-        if body:
-            post_data = {
-                "mimeType": next((v for k, v in req_headers.items() if k.lower() == "content-type"), "application/octet-stream"),
-                "text": body,
-            }
-        resp_body = log.get("response_body_preview") or ""
-        entry = {
-            "startedDateTime": started,
-            "time": float(log.get("duration_ms") or 0),
-            "request": {
-                "method": method,
-                "url": url,
-                "httpVersion": "HTTP/1.1",
-                "headers": [{"name": k, "value": v} for k, v in req_headers.items()],
-                "queryString": [],
-                "cookies": [],
-                "headersSize": -1,
-                "bodySize": len(body or ""),
-                **({"postData": post_data} if post_data else {}),
-            },
-            "response": {
-                "status": int(log.get("status_code") or 0),
-                "statusText": "",
-                "httpVersion": "HTTP/1.1",
-                "headers": [{"name": k, "value": v} for k, v in resp_headers.items()],
-                "cookies": [],
-                "content": {
-                    "size": int(log.get("content_length") or 0),
-                    "mimeType": log.get("content_type") or "",
-                    "text": resp_body,
-                },
-                "redirectURL": "",
-                "headersSize": -1,
-                "bodySize": int(log.get("content_length") or 0),
-            },
-            "cache": {},
-            "timings": {"send": 0, "wait": float(log.get("duration_ms") or 0), "receive": 0},
+def http_log_to_har_entry(log: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert one recorded exchange to a HAR entry."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    try:
+        req_headers = json.loads(log.get("request_headers") or "{}")
+    except Exception:
+        req_headers = {}
+    try:
+        resp_headers = json.loads(log.get("response_headers") or "{}")
+    except Exception:
+        resp_headers = {}
+    if not isinstance(req_headers, dict):
+        req_headers = {}
+    if not isinstance(resp_headers, dict):
+        resp_headers = {}
+    ts = float(log.get("timestamp") or 0.0)
+    started = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + ".000Z"
+    method = log.get("method") or "GET"
+    url = log.get("url") or ""
+    try:
+        query = [{"name": name, "value": value} for name, value in parse_qsl(urlsplit(url).query, keep_blank_values=True)]
+    except ValueError:
+        query = []
+    body = log.get("request_body") or ""
+    post_data = None
+    if body:
+        post_data = {
+            "mimeType": next((v for k, v in req_headers.items() if k.lower() == "content-type"), "application/octet-stream"),
+            "text": body,
         }
-        entries.append(entry)
+    resp_body = log.get("response_body_preview") or ""
+    entry = {
+        "startedDateTime": started,
+        "time": float(log.get("duration_ms") or 0),
+        "request": {
+            "method": method,
+            "url": url,
+            "httpVersion": "HTTP/1.1",
+            "headers": [{"name": k, "value": v} for k, v in req_headers.items()],
+            "queryString": query,
+            "cookies": [],
+            "headersSize": -1,
+            "bodySize": len(body.encode("utf-8")),
+            **({"postData": post_data} if post_data else {}),
+        },
+        "response": {
+            "status": int(log.get("status_code") or 0),
+            "statusText": "",
+            "httpVersion": "HTTP/1.1",
+            "headers": [{"name": k, "value": v} for k, v in resp_headers.items()],
+            "cookies": [],
+            "content": {
+                "size": int(log.get("content_length") or 0),
+                "mimeType": log.get("content_type") or "",
+                "text": resp_body,
+            },
+            "redirectURL": "",
+            "headersSize": -1,
+            "bodySize": int(log.get("content_length") or 0),
+        },
+        "cache": {},
+        "timings": {"send": 0, "wait": float(log.get("duration_ms") or 0), "receive": 0},
+    }
+    return entry
+
+
+def har_log_metadata(session: Dict[str, Any]) -> Dict[str, Any]:
+    from core import __version__
+
     return {
-        "log": {
-            "version": "1.2",
-            "creator": {"name": "GreyTab", "version": __import__("core").__version__},
-            "pages": [],
-            "entries": entries,
-            "_comment": f"Session: {(session or {}).get('name', '')}",
-        }
+        "version": "1.2",
+        "creator": {"name": "GreyTab", "version": __version__},
+        "pages": [],
+        "_comment": f"Session: {(session or {}).get('name', '')}",
     }
 
 

@@ -35,6 +35,8 @@ def check_installation():
 def check_ports(config):
     for name, host, port in [("API", config.api.host, config.api.port), ("proxy", config.proxy.host, config.proxy.port)]:
         with socket.socket() as sock:
+            # Match the listeners' bind behavior when a closed connection is still in TIME_WAIT.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 sock.bind((host, port))
             except OSError as e:

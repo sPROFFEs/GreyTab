@@ -31,6 +31,8 @@ jobs:
           python scripts/install_runtime.py
       - name: Real extension workflows and screenshots
         run: .venv/bin/python tests/browser_smoke.py --output tests/_runtime/browser
+      - name: History workspace and inspection regressions
+        run: .venv/bin/python tests/browser_smoke.py --inspection-only --output tests/_runtime/history
       - name: Build and verify release archive
         run: |
           python scripts/build_release.py
@@ -42,4 +44,5 @@ jobs:
           name: linux-qa
           path: |
             tests/_runtime/browser/
+            tests/_runtime/history/
             dist/

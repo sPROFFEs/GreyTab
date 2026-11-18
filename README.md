@@ -4,12 +4,12 @@
   <p>A Linux browser workspace for web security testing.</p>
 </div>
 
-GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.3.0** supports **Linux x86_64**. It installs its own **Chromium 156.0.8078.79** and **Python 3.13.18**; it does not replace your everyday browser.
+GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.3.1** supports **Linux x86_64**. It installs its own **Chromium 156.0.8078.79** and **Python 3.13.18**; it does not replace your everyday browser.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.1/quickstart.sh | bash
 ```
 
 Launch **GreyTab** from your application menu, or run `~/.local/bin/greytab`. Open the extension using its toolbar icon, then create or resume an audit session. `greytab --check` checks the installation; `greytab --version` prints the version.
@@ -21,7 +21,7 @@ The installer downloads the published release and verifies its SHA-256, installs
 | View | Available workflows |
 | --- | --- |
 | Proxy | Intercept, edit, forward and drop requests and responses; recover queued interceptions when reopening the panel. Turning interception off forwards pending messages. |
-| History | Live HTTP/HTTPS traffic, URL/host/method/status filters, URL regex search, request/response inspection, comments and color highlights, site map, HAR and findings reports. |
+| History | Paged HTTP/HTTPS history with live pause, session-wide URL and note search, content filters, an exchange inspector, site map, HAR and findings reports. |
 | Repeater | Independent tabs with preserved destinations, editable raw HTTP, redirect control, static response preview, consecutive-response diff and optional AI explanation. |
 | Intruder | Sniper, Battering Ram, Pitchfork and Cluster Bomb; lists, numeric ranges and wordlists; concurrency control and grep extraction. |
 | AutoScanner | Crawl or test a captured request; XSS, SQLi, traversal, LFI, redirects, SSTI, command injection, CRLF, SSRF, CORS and optional OAST; attempts, evidence and findings. |
@@ -55,7 +55,7 @@ The browser suite loads the actual extension in the pinned Chromium and exercise
 - [Testing and release checks](docs/TESTING.md)
 - [Scanner lab regression](regression/README.md)
 - [Release procedure](docs/RELEASE.md)
-- [0.3.0 QA results and limitations](docs/QA-0.3.0.md)
+- [0.3.1 QA results and limitations](docs/QA-0.3.1.md)
 - [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 GreyTab covers several everyday Burp-style workflows. It does not claim Burp Suite feature parity or equivalent scanner accuracy; see the documented limits and test evidence.

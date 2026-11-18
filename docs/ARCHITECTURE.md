@@ -35,7 +35,7 @@ Repeater shares a connection pool but rejects inherited response cookies between
 
 `background.js` proxies API calls and forwards backend events. A heartbeat keeps its WebSocket active across idle MV3 periods. `sidepanel.html` loads the scripts in dependency order: core state, raw HTTP/replay, proxy events, history/tools, decoder, bookmarklets, scanner/settings, utilities and initialization. `terminal.html` retrieves tool output by character offset, independently of when the tab was opened.
 
-History uses incremental queries and a 1,000-row DOM budget. Individual details are fetched on demand. Scanner attempts have independent storage/rendering budgets. Workspace saves are throttled; SQLite remains the durable traffic store. Repeater previews run in a sandbox with network resources and scripts blocked.
+History filters in SQLite and pages by request ID with a 200-row DOM budget. Live refresh is coalesced and respects the current page and scroll position. The panel fetches message bodies only when opening an exchange. Page regex runs in a worker with a time limit. The site map groups metadata directly in SQLite. HAR reads small descending batches and streams entries as JSON. The extension downloads that response as a blob without round-tripping it through the service worker. Scanner attempts have independent storage/rendering budgets. Workspace saves are throttled; SQLite remains the durable traffic store. Repeater previews run in a sandbox with network resources and scripts blocked.
 
 ## Persistence
 

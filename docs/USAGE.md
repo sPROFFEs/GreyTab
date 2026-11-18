@@ -8,7 +8,9 @@ Browse the target through the launched Chromium. HTTP, HTTPS and WebSocket traff
 
 Enable request and/or response interception in Proxy. Select a queued message, edit its raw text and Forward or Drop it. Turning a toggle off releases its pending messages. Queues can be recovered after reopening the panel. Detached scanner windows observe interception and do not forward the main panel's messages.
 
-History filters the most recent loaded requests by URL, host, method or status. The regex toggle applies a JavaScript regex to URLs and retains case sensitivity options through the built-in case-insensitive mode. Invalid patterns match no rows. Select a row to inspect both messages. Right-click for replay, tool launch, code export, comments, highlights or deletion. The lightning button actively scans that exact request and preserves its method and body. Site Map groups endpoints by host/path.
+History searches recorded URLs and notes across the active session. Use host, method, status, content type and annotation filters together, then move between pages with Newer and Older. Each page contains at most 200 requests. Regex on page applies a case-insensitive pattern to URLs on the current page and reports invalid or slow patterns. Pause stops the visible list from advancing while the proxy continues to record. Refresh returns to the latest results.
+
+Select a row to read the request and response. Copy message copies the captured text for the current view, and Wrap controls line wrapping. Inspect shows connection details, decoded query and form fields, and captured headers. Save notes and highlights directly in the inspector. Use the row menu or right-click for actions and code exports. Site Map groups recent traffic by host and path and opens the matching history when you select a path.
 
 Keyboard shortcuts: Ctrl+R sends the selected request to Repeater, Ctrl+I to Intruder, Ctrl+F focuses History search, and j/k move between visible History rows. The browser's extension keyboard shortcut can be configured at `chrome://extensions/shortcuts`.
 
@@ -81,7 +83,7 @@ AI is optional and disabled by default. Configure provider, endpoint, model and 
 ## Limits
 
 - Linux x86_64 only; the pinned Chromium was validated locally and through CI, not on every Linux distribution.
-- History renders the latest 1,000 loaded requests; URL filters operate on those loaded rows. SQLite retains the rest. REST log export can retrieve up to 50,000 entries with `offset` pagination.
+- History renders up to 200 requests per page. Literal URL and note search and the structured filters cover the session. Regex applies to the current page. Site Map summarizes the 20,000 most recent requests. REST log export can retrieve up to 50,000 entries with `offset` pagination.
 - Captured textual request/response bodies and Repeater previews are limited to 1 MiB. Binary data is not an exact editable/replayable message format. The sandboxed preview is static.
 - `.pbx` saves up to 50,000 HTTP requests and 5,000 WebSocket frames/tool runs. The UI HAR export defaults to 5,000; the API supports a `limit` up to 50,000. These exports are bounded snapshots rather than unlimited backups of SQLite.
 - Intruder caps attacks at 5,000 requests, 20 workers and 16 KiB retained response previews per result. Closing the panel stops its scheduling. Already-sent requests may still complete.

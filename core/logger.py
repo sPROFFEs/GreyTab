@@ -232,7 +232,10 @@ class LoggerDB:
     async def get_http_logs(self, session_id: str, limit: int = 200,
                             host_filter: str = "", method_filter: str = "",
                             status_filter: Optional[int] = None, after_id: int = 0,
-                            summary: bool = False, offset: int = 0) -> List[Dict]:
+                            summary: bool = False, offset: int = 0, *,
+                            before_id: int = 0, search: str = "", status_class: int = 0,
+                            mime: str = "", annotated: bool = False,
+                            exact_host: str = "", path: str = "") -> List[Dict]:
         """Get HTTP logs with optional filters."""
         query = "SELECT h.*, COALESCE(m.highlight, '') AS highlight, COALESCE(m.comment, '') AS comment FROM http_log h LEFT JOIN http_log_meta m ON m.log_id = h.id WHERE h.session_id = ?"
         params: List[Any] = [session_id]
@@ -241,16 +244,37 @@ class LoggerDB:
         if after_id:
             query += " AND h.id > ?"
             params.append(after_id)
+        if before_id:
+            query += " AND h.id < ?"
+            params.append(before_id)
         
         if host_filter:
-            query += " AND h.host LIKE ?"
-            params.append(f"%{host_filter}%")
+            query += " AND instr(lower(h.host), lower(?)) > 0"
+            params.append(host_filter)
+        if exact_host:
+            query += " AND h.host = ? COLLATE NOCASE"
+            params.append(exact_host)
+        if path:
+            query += " AND (h.path = ? OR substr(h.path, 1, length(?) + 1) = ? || '?')"
+            params.extend([path, path, path])
         if method_filter:
             query += " AND h.method = ?"
             params.append(method_filter)
         if status_filter is not None:
             query += " AND h.status_code = ?"
             params.append(status_filter)
+        if status_class:
+            query += " AND h.status_code >= ? AND h.status_code < ?"
+            params.extend([status_class * 100, (status_class + 1) * 100])
+        if mime:
+            query += " AND instr(lower(h.content_type), lower(?)) > 0"
+            params.append(mime)
+        if annotated:
+            query += " AND (m.highlight <> '' OR m.comment <> '')"
+        if search:
+            query += """ AND (instr(lower(h.url), lower(?)) > 0
+                           OR instr(lower(m.comment), lower(?)) > 0)"""
+            params.extend([search, search])
         
         query += " ORDER BY h.id " + ("ASC" if after_id else "DESC") + " LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -261,9 +285,27 @@ class LoggerDB:
 
     async def get_http_log_detail(self, log_id: int) -> Optional[Dict]:
         """Get detailed HTTP log entry."""
-        async with self._db.execute("SELECT * FROM http_log WHERE id = ?", (log_id,)) as cursor:
+        async with self._db.execute(
+            """SELECT h.*, COALESCE(m.highlight, '') AS highlight, COALESCE(m.comment, '') AS comment
+               FROM http_log h LEFT JOIN http_log_meta m ON m.log_id = h.id WHERE h.id = ?""",
+            (log_id,),
+        ) as cursor:
             row = await cursor.fetchone()
             return dict(row) if row else None
+
+    async def get_sitemap_counts(self, session_id: str) -> List[Dict]:
+        """Group recent request metadata without materializing captured bodies."""
+        async with self._db.execute(
+            """SELECT host,
+                      CASE WHEN instr(path, '?') > 0 THEN substr(path, 1, instr(path, '?') - 1)
+                           ELSE path END AS endpoint,
+                      method, status_code, COUNT(*) AS count
+               FROM (SELECT host, path, method, status_code FROM http_log
+                     WHERE session_id = ? ORDER BY id DESC LIMIT 20000)
+               GROUP BY host, endpoint, method, status_code""",
+            (session_id,),
+        ) as cursor:
+            return [dict(row) for row in await cursor.fetchall()]
 
     async def delete_http_log(self, log_id: int, session_id: Optional[str] = None) -> int:
         """Delete a single HTTP log entry. Returns number of rows deleted."""

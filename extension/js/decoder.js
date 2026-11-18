@@ -245,7 +245,8 @@ function highlightUrlEncoded(text) {
 function renderRepeaterRequestPreview() {
     if (!dom.repeaterReqHighlight) return;
     const raw = String(dom.repeaterRawRequest?.value || '');
-    dom.repeaterReqHighlight.innerHTML = raw ? highlightHttp(raw) + '\n' : '';
+    if (raw.length > 65000) dom.repeaterReqHighlight.textContent = raw + '\n';
+    else dom.repeaterReqHighlight.innerHTML = raw ? highlightHttp(raw) + '\n' : '';
 }
 
 function renderIntruderRequestPreview() {
