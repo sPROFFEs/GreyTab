@@ -13,10 +13,12 @@ A release is a tested source archive plus a pinned runtime manifest. Publish onl
 Example packaging and publication after all checks:
 
 ```bash
+VERSION=0.4.0
+TESTED_COMMIT=$(git rev-parse HEAD)
 python3 scripts/build_release.py --output dist
 (cd dist && sha256sum -c SHA256SUMS)
-gh release create v0.3.1 dist/greytab-linux-x86_64.tar.gz dist/SHA256SUMS \
-  --target TESTED_COMMIT --title 'GreyTab 0.3.1' --notes-file /tmp/greytab-release-notes.md
+gh release create "v$VERSION" dist/greytab-linux-x86_64.tar.gz dist/SHA256SUMS \
+  --target "$TESTED_COMMIT" --title "GreyTab $VERSION" --notes-file /tmp/greytab-release-notes.md
 ```
 
 Keep real audit databases, profiles, secrets and certificates out of release assets. Preserve only sanitized local-fixture screenshots and reports as QA evidence. Do not present safe mock/lab coverage as measured parity with Burp Suite or universal scanner accuracy.

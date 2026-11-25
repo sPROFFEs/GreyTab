@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-25
 
 - Open the GreyTab desktop workspace automatically alongside Chromium. Use **Browser** to return to the active browser window, or `greytab --side-panel` to launch Chromium and open the toolbar panel on demand.
 - Group the desktop tools in a vertical navigation rail, with keyboard controls, connection labels and the compact horizontal navigation at smaller widths.

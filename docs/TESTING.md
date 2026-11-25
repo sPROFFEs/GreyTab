@@ -10,7 +10,8 @@ python3.13 -m venv .venv
 .venv/bin/pytest -q
 node --test tests/extension.test.cjs
 .venv/bin/ruff check core launcher.py scripts tests --select F821,F822,F823,E9
-bash -n install.sh quickstart.sh
+bash -n install.sh
+bash -n quickstart.sh
 ```
 
 The Python suite exercises API discovery, session scope, origin restrictions, uploads, imports, foreign-key deletion, replay semantics, payload transmission, all detector families against deterministic safe transports, confirmed SSTI versus reflection, scoped token injection, settings and tool output. The Node suite checks raw HTTP destinations, body parsing, known MD5 vectors and Unicode round trips without browser scaffolding.

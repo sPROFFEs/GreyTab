@@ -24,7 +24,8 @@ jobs:
           .venv/bin/pytest -q
           node --test tests/extension.test.cjs
           .venv/bin/ruff check core launcher.py scripts tests --select F821,F822,F823,E9
-          bash -n install.sh quickstart.sh
+          bash -n install.sh
+          bash -n quickstart.sh
       - name: Install pinned Chromium and Linux libraries
         run: |
           .venv/bin/playwright install-deps chromium

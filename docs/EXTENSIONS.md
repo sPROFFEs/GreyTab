@@ -1,6 +1,6 @@
 # Extensions
 
-The Extensions view in the development checkout provides a catalog, a Burp archive inspector and a manager for native GreyTab view packs. They are available in the desktop workspace and the side panel after opening a session. The features use the existing Linux installation and runtime.
+The Extensions view provides a catalog, a Burp archive inspector and a manager for native GreyTab view packs. They are available in the desktop workspace and the side panel after opening a session. The features use the standard Linux installation and runtime.
 
 ## Browse the catalog
 

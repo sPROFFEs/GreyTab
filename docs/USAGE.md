@@ -2,7 +2,7 @@
 
 ## Desktop workspace
 
-The current development checkout opens GreyTab and Chromium in separate windows. **Browser** focuses the Chromium window. To reopen the workspace, open GreyTab from the Chromium toolbar and select **Open workspace**. `greytab --side-panel` starts Chromium with no workspace window.
+GreyTab and Chromium open in separate windows. **Browser** focuses the Chromium window. To reopen the workspace, open GreyTab from the Chromium toolbar and select **Open workspace**. `greytab --side-panel` starts Chromium with no workspace window.
 
 At desktop widths, the navigation rail groups tools by task. Use Up/Down to move between tools, Home/End to go to either end, and Enter or Space to open the focused tool. At narrower widths, use Left/Right. Both views use the same on-disk sessions and captured traffic. Each view remembers its selected tool and drafts. On first use the desktop view starts with the existing panel drafts.
 

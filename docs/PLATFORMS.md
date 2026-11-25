@@ -19,4 +19,4 @@ Start with browsing and recording the app's own traffic, then implement touch-fr
 
 Burp extensions typically run in a JVM and invoke Burp's Montoya API. Extensions can depend on traffic models, event callbacks, persistence and desktop UI provided by Burp. GreyTab currently uses Chromium's extension APIs and a Python backend. Running existing JARs would require a compatible JVM host and sufficient Montoya behavior for each supported extension. See [Creating Burp extensions](https://portswigger.net/burp/documentation/desktop/extend-burp/extensions/creating) and the [Montoya API reference](https://portswigger.github.io/burp-extensions-montoya-api/javadoc/index.html).
 
-The development checkout includes static JAR and BApp inspection and a native view pack interface for offline message formatting. See the [extension guide](EXTENSIONS.md) for the feature matrix, examples and verified workflows.
+GreyTab includes static JAR and BApp inspection and a native view pack interface for offline message formatting. See the [extension guide](EXTENSIONS.md) for the feature matrix, examples and verified workflows.
