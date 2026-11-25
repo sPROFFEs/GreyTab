@@ -380,7 +380,7 @@ body {
 
 .btn--primary {
   background-color: var(--accent);
-  color: white;
+  color: var(--accent-button-text, #fff);
 }
 
 .btn--danger {
@@ -2327,7 +2327,7 @@ body.scanner-detached #tab-settings {
 
 .decoder-dir-btn--active {
   background: var(--accent) !important;
-  color: #fff !important;
+  color: var(--accent-button-text, #fff) !important;
 }
 
 /* ── JWT Inspector ── */
@@ -2697,7 +2697,7 @@ body.scanner-detached #tab-settings {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   BURP-LIKE VISUAL POLISH
+   EDITOR AND MESSAGE PANELS
    ══════════════════════════════════════════════════════════════════ */
 
 /* Panel borders for clear separation */
@@ -2722,13 +2722,7 @@ body.scanner-detached #tab-settings {
   overflow: auto;
 }
 
-/* Tab active state — brighter accent */
-.tab--active {
-  border-bottom-color: #58a6ff !important;
-  color: #58a6ff !important;
-}
-
-/* Sub-tabs (detail-tab) — Burp-like pill style */
+/* Message view tabs */
 .detail-tab {
   border-radius: 3px 3px 0 0;
   border: 1px solid transparent;
@@ -3225,6 +3219,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 #tab-requests .history-grid-container:has(#request-detail[style*="display: flex"]) {
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
 }
+#history-splitter {
+  display: none;
+  touch-action: none;
+}
+#history-splitter:focus-visible {
+  background: var(--accent);
+  outline: 1px solid var(--text-main);
+}
 #tab-requests .history-list-pane > .section__header {
   display: grid;
   gap: 8px;
@@ -3325,7 +3327,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .history-map-path:hover { background: var(--bg-input); }
 @media (min-width: 1000px) {
   #tab-requests .history-grid-container:has(#request-detail[style*="display: flex"]) {
-    grid-template: minmax(0, 1fr) / minmax(450px, 6fr) minmax(0, 5fr);
+    grid-template: minmax(0, 1fr) / minmax(0, var(--history-list-width, 55fr)) 5px minmax(0, var(--history-detail-width, 45fr));
+  }
+  .history-grid-container:has(#request-detail[style*="display: flex"]) #history-splitter {
+    display: block;
   }
 }
 @media (max-width: 650px) {

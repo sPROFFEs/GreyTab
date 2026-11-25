@@ -2,91 +2,6 @@
 // Traffic & History
 // ══════════════════════════════════════════════════════════════════
 
-function addTrafficItem(flow) {
-    state.trafficItems.unshift(flow);
-    if (state.trafficItems.length > 20000) state.trafficItems.pop();
-    renderTrafficItem(flow, true);
-    if (dom.trafficCount) dom.trafficCount.textContent = state.trafficItems.length;
-    // Trigger passive scan on new traffic
-    try { scanForFindings(flow); } catch { }
-    scheduleWorkspaceSave();
-}
-
-function renderTrafficItem(flow, prepend = false) {
-    const emptyState = dom.trafficList.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
-
-    const el = document.createElement('div');
-    el.className = 'traffic-item';
-    el.dataset.id = flow.id;
-
-    const statusClass = getStatusClass(flow.status_code);
-    const methodClass = `method-${flow.method}`;
-
-    const host = new URL(flow.url).host;
-    el.innerHTML = `
-      <div class="traffic-item__main">
-        <div class="traffic-item__line1">
-          <span class="traffic-item__method ${methodClass}">${flow.method}</span>
-          <span class="traffic-item__url" title="${escHtml(flow.url)}">${escHtml(flow.path || flow.url)}</span>
-        </div>
-        <div class="traffic-item__host">Host: ${escHtml(host)}</div>
-      </div>
-      <div class="traffic-item__meta">
-        <span class="traffic-item__status ${statusClass}">${flow.status_code || ''}</span>
-        <span class="traffic-item__time">${flow.duration_ms ? Math.round(flow.duration_ms) + 'ms' : ''}</span>
-      </div>
-    `;
-
-    el.addEventListener('click', () => showRequestDetail(flow.id));
-
-    // Context menu on right-click
-    el.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        showContextMenu(e.clientX, e.clientY, flow);
-    });
-
-    if (prepend) {
-        dom.trafficList.prepend(el);
-    } else {
-        dom.trafficList.appendChild(el);
-    }
-
-    // Apply active filters
-    applyTrafficFilters(el, flow);
-}
-
-function applyTrafficFilters(el, flow) {
-    const hostFilter = dom.trafficFilterHost.value.toLowerCase();
-    const methodFilter = dom.trafficFilterMethod.value;
-
-    let show = true;
-    if (hostFilter && !flow.url.toLowerCase().includes(hostFilter)) show = false;
-    if (methodFilter && flow.method !== methodFilter) show = false;
-
-    el.style.display = show ? 'flex' : 'none';
-}
-
-function updateAllTrafficFilters() {
-    const hostFilter = dom.trafficFilterHost.value.toLowerCase();
-    const methodFilter = dom.trafficFilterMethod.value;
-
-    $$('.traffic-item').forEach(el => {
-        const method = el.querySelector('.traffic-item__method').textContent;
-        const url = el.querySelector('.traffic-item__url').title.toLowerCase();
-
-        let show = true;
-        if (hostFilter && !url.includes(hostFilter)) show = false;
-        if (methodFilter && method !== methodFilter) show = false;
-
-        el.style.display = show ? 'flex' : 'none';
-    });
-}
-
-// Filter listeners
-if (dom.trafficFilterHost) dom.trafficFilterHost.addEventListener('input', updateAllTrafficFilters);
-if (dom.trafficFilterMethod) dom.trafficFilterMethod.addEventListener('change', updateAllTrafficFilters);
-
 function getStatusClass(code) {
     if (!code) return '';
     if (code >= 200 && code < 300) return 'status-2xx';
@@ -105,12 +20,16 @@ function escHtml(str) {
 // Session Management
 // ══════════════════════════════════════════════════════════════════
 
-$('#btn-create-session').addEventListener('click', async () => {
+$('#session-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('#btn-create-session');
+    if (button.disabled) return;
     const name = dom.sessionName.value.trim();
     if (!name) {
-        dom.sessionName.style.borderColor = 'var(--danger)';
+        dom.sessionName.focus();
         return;
     }
+    button.disabled = true;
     try {
         const session = await apiRequest('POST', '/api/sessions', {
             name,
@@ -121,6 +40,9 @@ $('#btn-create-session').addEventListener('click', async () => {
         loadTools();
     } catch (e) {
         console.error('Failed to create session:', e);
+        alert('Could not create the session. Check the backend connection and try again.');
+    } finally {
+        button.disabled = false;
     }
 });
 
@@ -544,6 +466,43 @@ let historyEndpoint = null;
 let regexWorker;
 const historySeen = new Set();
 
+const historySplitter = $('#history-splitter');
+const historyGrid = historySplitter.parentElement;
+
+function resizeHistoryPanes(value) {
+    const left = Math.round(Math.max(38, Math.min(67, value)));
+    historyGrid.style.setProperty('--history-list-width', `${left}fr`);
+    historyGrid.style.setProperty('--history-detail-width', `${100 - left}fr`);
+    historySplitter.setAttribute('aria-valuenow', left);
+}
+
+historySplitter.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    historySplitter.focus();
+    historySplitter.setPointerCapture(event.pointerId);
+    historySplitter.classList.add('panel-splitter--active');
+});
+
+historySplitter.addEventListener('pointermove', event => {
+    if (!historySplitter.hasPointerCapture(event.pointerId)) return;
+    const bounds = historyGrid.getBoundingClientRect();
+    resizeHistoryPanes((event.clientX - bounds.left) * 100 / bounds.width);
+});
+
+historySplitter.addEventListener('lostpointercapture', () => {
+    historySplitter.classList.remove('panel-splitter--active');
+});
+
+historySplitter.addEventListener('dblclick', () => resizeHistoryPanes(55));
+
+historySplitter.addEventListener('keydown', event => {
+    const current = Number(historySplitter.getAttribute('aria-valuenow'));
+    const position = {ArrowLeft: current - 5, ArrowRight: current + 5, Home: 38, End: 67}[event.key];
+    if (typeof position !== 'number') return;
+    event.preventDefault();
+    resizeHistoryPanes(position);
+});
+
 function setHistoryStatus(message) {
     $('#history-page-status').textContent = message;
 }
@@ -805,6 +764,7 @@ function closeHistoryDetail() {
     state.selectedLogId = null;
     state.currentLog = null;
     historyMessages = {};
+    refreshHistoryExtensionView();
     dom.requestDetail.style.display = 'none';
     dom.requestList.querySelector('.request-item--active')?.classList.remove('request-item--active');
 }
@@ -818,9 +778,12 @@ function setHistoryDetailView(view) {
     dom.detailRequest.style.display = view === 'request' ? 'block' : 'none';
     dom.detailResponse.style.display = view === 'response' ? 'block' : 'none';
     $('#history-inspector').hidden = view !== 'inspect';
+    $('#history-extension-view').hidden = view !== 'extensions';
+    const rawMessage = view === 'request' || view === 'response';
     $('#btn-history-copy').disabled = !historyMessages[view];
-    $('#btn-history-copy').hidden = view === 'inspect';
-    $('#btn-history-wrap').hidden = view === 'inspect';
+    $('#btn-history-copy').hidden = !rawMessage;
+    $('#btn-history-wrap').hidden = !rawMessage;
+    if (view === 'extensions') refreshHistoryExtensionView();
 }
 
 function historyHeaderEntries(value) {

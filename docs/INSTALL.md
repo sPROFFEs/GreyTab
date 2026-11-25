@@ -46,6 +46,10 @@ Download `greytab-linux-x86_64.tar.gz` and `SHA256SUMS` from the [release](https
 
 Developers can clone the repository and run `bash install.sh`. Custom Chromium builds can be selected at launch with `GREYTAB_CHROME_BIN=/absolute/path/to/chrome`; the release's validation covers the pinned build.
 
+The current development checkout opens the workspace alongside Chromium. Run `greytab --side-panel` to start Chromium and open GreyTab from its toolbar on demand. The toolbar panel's **Open workspace** button opens or focuses the desktop window. The published v0.3.1 package opens GreyTab from the toolbar.
+
+The [Extensions view](EXTENSIONS.md) in the development checkout uses the existing Linux installer. The archive inspector reads Java class files using Python's standard library.
+
 ## Update and recovery
 
 Close GreyTab, back up `data/`, `logs/`, `profile/` and any `.pbx` projects, then run the one-liner again. Application files and locked runtime packages are refreshed; the profile, database and configuration remain in place. Browser downloads are skipped when the installed version marker matches. A failed download or checksum check stops installation before replacing the browser.

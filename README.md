@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.3.1/quickstart.
 
 Launch **GreyTab** from your application menu, or run `~/.local/bin/greytab`. Open the extension using its toolbar icon, then create or resume an audit session. `greytab --check` checks the installation; `greytab --version` prints the version.
 
+In the current source checkout, GreyTab opens its workspace in a separate window alongside Chromium. Choose **Browser** in the workspace header to return to browsing. Use `greytab --side-panel` to open GreyTab from the browser toolbar on demand.
+
 The installer downloads the published release and verifies its SHA-256, installs a verified portable Chromium and uv, downloads the pinned Python runtime, and installs locked Python dependencies. Everything lives under `~/.local/share/greytab`, with a command in `~/.local/bin`; no system-wide Python installation is needed. Prerequisites: a graphical Linux session, x86_64, glibc 2.28+, Python 3.9+ for bootstrapping, `curl`, `tar`, `sha256sum`, and Chromium's system libraries. See [installation and updates](docs/INSTALL.md) for distribution packages, custom paths, manual installation and troubleshooting.
 
 ## Workspace
@@ -30,23 +32,30 @@ The installer downloads the published release and verifies its SHA-256, installs
 | Tools | Run installed tools or custom commands, upload wordlists, inspect output in a separate terminal and cancel processes. |
 | Bookmarklets | Page inspection helpers including a reversible Smart Reveal, OSINT launchers and your own snippets. |
 | Settings | Match & Replace rules, scoped token capture/injection, proxy configuration, custom tools and optional AI providers. |
+| Extensions (development) | Browse native view packs and selected BApp listings, inspect Burp archives, and add read-only views to History and Repeater. |
 
 [Usage guide](docs/USAGE.md) explains these workflows, keyboard shortcuts and practical limits. Audit only targets for which you have authorization.
 
+[Extension guide](docs/EXTENSIONS.md) covers the catalog, Burp compatibility report, native view packs and a sample manifest. [Platform notes](docs/PLATFORMS.md) cover Android feasibility.
+
 ## Screenshots
 
-The captures below show GreyTab running against local test data in the pinned Chromium.
+The captures below show the development checkout running against local test data in the pinned Chromium.
 
 **History and Inspector** show recorded traffic, annotation filters, connection details and decoded parameters in one workspace.
 
-![GreyTab History and Inspector in a wide window, with captured traffic, a saved note and repeated query parameters](docs/screenshots/history-inspector.png)
+![GreyTab desktop History and Inspector with paged traffic, a resizable divider and repeated query parameters](docs/screenshots/history-inspector.png)
 
 <details>
-<summary>See Repeater, Site Map and the narrow side panel</summary>
+<summary>See Repeater, Extensions, Site Map and the narrow side panel</summary>
 
 **Repeater** displays an editable HTTP request alongside its response, status and elapsed time.
 
 ![GreyTab Repeater with a raw HTTP request and a successful JSON response](docs/screenshots/repeater-exchange.png)
+
+**Extensions** offers one-click installation of native view packs and links to selected BApp Store listings. Archive inspection and installed packs have their own views.
+
+![GreyTab extension catalog showing native installable packs and official BApp Store listings](docs/screenshots/extensions.png)
 
 **Site Map** groups recorded paths by host. Select a path to jump to its requests in History.
 

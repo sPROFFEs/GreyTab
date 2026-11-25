@@ -1,5 +1,11 @@
 # Using GreyTab
 
+## Desktop workspace
+
+The current development checkout opens GreyTab and Chromium in separate windows. **Browser** focuses the Chromium window. To reopen the workspace, open GreyTab from the Chromium toolbar and select **Open workspace**. `greytab --side-panel` starts Chromium with no workspace window.
+
+At desktop widths, the navigation rail groups tools by task. Use Up/Down to move between tools, Home/End to go to either end, and Enter or Space to open the focused tool. At narrower widths, use Left/Right. Both views use the same on-disk sessions and captured traffic. Each view remembers its selected tool and drafts. On first use the desktop view starts with the existing panel drafts.
+
 Create a session with a name and optional comma-separated domain scope. Domains match the host and its subdomains; they are domain names, not URL keywords. Resume previous sessions from the landing screen. Switching sessions resets the active scope; stop an active scan before switching.
 
 ## Proxy and History
@@ -10,9 +16,13 @@ Enable request and/or response interception in Proxy. Select a queued message, e
 
 History searches recorded URLs and notes across the active session. Use host, method, status, content type and annotation filters together, then move between pages with Newer and Older. Each page contains at most 200 requests. Regex on page applies a case-insensitive pattern to URLs on the current page and reports invalid or slow patterns. Pause stops the visible list from advancing while the proxy continues to record. Refresh returns to the latest results.
 
-Select a row to read the request and response. Copy message copies the captured text for the current view, and Wrap controls line wrapping. Inspect shows connection details, decoded query and form fields, and captured headers. Save notes and highlights directly in the inspector. Use the row menu or right-click for actions and code exports. Site Map groups recent traffic by host and path and opens the matching history when you select a path.
+Select a row to read the request and response. Copy message copies the captured text for the current view, and Wrap controls line wrapping. Inspect shows connection details, decoded query and form fields, and captured headers. Save notes and highlights directly in the inspector. At desktop widths, drag the divider or focus it and press Left/Right to resize the panes. Double-click the divider to restore the default widths. Use the row menu or right-click for actions and code exports. Site Map groups recent traffic by host and path and opens the matching history when you select a path.
 
 Keyboard shortcuts: Ctrl+R sends the selected request to Repeater, Ctrl+I to Intruder, Ctrl+F focuses History search, and j/k move between visible History rows. The browser's extension keyboard shortcut can be configured at `chrome://extensions/shortcuts`.
+
+## Extensions
+
+Use **Extensions** → **Catalog** to install native view packs or find links to selected BApp listings. **Installed** manages and imports packs. **Burp compatibility** inspects a Burp JAR or BApp and lists its API and UI references. Enabled views can appear in History, Repeater or the offline workspace. See the [extension guide](EXTENSIONS.md) for limits and an example pack.
 
 ## Repeater
 
@@ -70,7 +80,7 @@ Tools reports installed executables and lists project/system wordlists. Install 
 
 Decoder supports Unicode text, encodings and hashes. JWT decoding does not verify signatures. HMAC rebuilding supports HS256/384/512 with a supplied key; `alg=none` produces an empty signature. Generated tokens are testing artifacts.
 
-Bookmarklets execute on the active HTTP(S) tab. Smart Reveal restores modified field/visibility state on a second run. Custom snippets run in the page's main world; strict target CSP may block evaluated snippets, in which case GreyTab reports the error. OSINT launchers open third-party sites after user action.
+Open GreyTab in the Chromium side panel to run bookmarklets on the active HTTP(S) tab. Smart Reveal restores modified field/visibility state on a second run. Custom snippets run in the page's main world. Strict target CSP may block evaluated snippets, in which case GreyTab reports the error. OSINT launchers open third-party sites after user action.
 
 ## Settings and AI
 

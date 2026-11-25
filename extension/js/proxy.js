@@ -485,11 +485,13 @@ if (dom.btnDropResponse) {
 function updateConnectionStatus() {
     dom.wsIndicator.className = `status-dot status-dot--${state.connected ? 'connected' : 'disconnected'}`;
     dom.wsIndicator.title = state.connected ? 'Backend: Connected' : 'Backend: Disconnected';
+    $('#ws-label').textContent = state.connected ? 'Backend connected' : 'Backend disconnected';
 }
 
 function updateProxyStatus() {
     dom.proxyIndicator.className = `status-dot status-dot--${state.proxyRunning ? 'connected' : 'disconnected'}`;
     dom.proxyIndicator.title = state.proxyRunning ? 'Proxy: Running' : 'Proxy: Stopped';
+    $('#proxy-label').textContent = state.proxyRunning ? 'Proxy running' : 'Proxy stopped';
     dom.proxyStatus.textContent = state.proxyRunning ? 'Running' : 'Stopped';
     dom.proxyStatus.style.color = state.proxyRunning ? 'var(--success)' : 'var(--danger)';
     if (dom.proxyPort) dom.proxyPort.textContent = String(state.proxyPort || 8080);
@@ -553,7 +555,6 @@ function showActiveSession(name, id) {
     const changed = Boolean(id && id !== state.viewSessionId);
     state.viewSessionId = id || state.sessionId;
     if (changed) {
-        state.trafficItems = [];
         resetHistorySession();
         state.scanner.findings = [];
         dom.scannerFindings.innerHTML = '<div class="empty-state">No findings in this workspace.</div>';

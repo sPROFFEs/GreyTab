@@ -21,7 +21,6 @@ const state = {
     selectedLogId: null,
     currentLog: null,
     currentRunId: null,
-    trafficItems: [],
     stats: { requests: 0, tools: 0, findings: 0 },
     // Intruder
     intruder: {
@@ -82,7 +81,18 @@ function wsSend(data) {
     chrome.runtime.sendMessage({ type: 'ws_send', data });
 }
 
-const WORKSPACE_STORAGE_KEY = 'greytab_workspace_state_v1';
+const viewParams = new URLSearchParams(location.search);
+const isWorkspaceWindow = viewParams.get('view') === 'workspace';
+const PANEL_STORAGE_KEY = 'greytab_workspace_state_v1';
+const WORKSPACE_STORAGE_KEY = isWorkspaceWindow ? 'greytab_desktop_state_v1' : PANEL_STORAGE_KEY;
+const ACTIVE_TOOL_KEY = isWorkspaceWindow ? 'greytab_desktop_tool' : 'greytab_panel_tool';
+const toolTabs = document.querySelector('.workspace-layout > .tabs');
+const desktopNavigation = window.matchMedia('(min-width: 1060px)');
+document.body.classList.toggle('workspace-window', isWorkspaceWindow);
+if (isWorkspaceWindow) {
+    document.getElementById('btn-external').hidden = true;
+    document.getElementById('btn-focus-browser').hidden = false;
+}
 let workspaceSaveTimer = null;
 
 function scheduleWorkspaceSave(delayMs = 2000) {
@@ -95,7 +105,6 @@ function scheduleWorkspaceSave(delayMs = 2000) {
 }
 
 function snapshotWorkspaceState() {
-    const trafficItems = Array.isArray(state.trafficItems) ? state.trafficItems.slice(0, 500) : [];
     const intruderResults = Array.isArray(state.intruder.results) ? state.intruder.results.slice(-200) : [];
     const scannerFindings = Array.isArray(state.scanner.findings) ? state.scanner.findings.slice(0, 3000) : [];
     const scannerActivity = Array.isArray(state.scanner.activities) ? state.scanner.activities.slice(-2000) : [];
@@ -105,7 +114,6 @@ function snapshotWorkspaceState() {
     return {
         ts: Date.now(),
         active_tab: state.activeTab || 'proxy',
-        traffic_items: trafficItems,
         repeater_state: {
             active_tab_id: state.repeater.activeTabId,
             tabs: (state.repeater.tabs || []).map((t) => ({
@@ -152,12 +160,11 @@ async function persistWorkspaceState() {
 
 async function restoreWorkspaceState() {
     if (!chrome?.storage?.local) return;
-    const data = await chrome.storage.local.get(WORKSPACE_STORAGE_KEY);
-    const ws = data?.[WORKSPACE_STORAGE_KEY];
-    if (!ws || typeof ws !== 'object') return;
-
-    if (Array.isArray(ws.traffic_items) && ws.traffic_items.length > 0) {
-        state.trafficItems = ws.traffic_items.slice(0, 10000);
+    const data = await chrome.storage.local.get([PANEL_STORAGE_KEY, WORKSPACE_STORAGE_KEY, ACTIVE_TOOL_KEY]);
+    const ws = data[WORKSPACE_STORAGE_KEY] || data[PANEL_STORAGE_KEY];
+    if (!ws || typeof ws !== 'object') {
+        if (data?.[ACTIVE_TOOL_KEY]) activateTab(data[ACTIVE_TOOL_KEY]);
+        return;
     }
 
     const rep = ws.repeater_state;
@@ -196,7 +203,7 @@ async function restoreWorkspaceState() {
         }
     }
 
-    const activeTab = String(ws.active_tab || '').trim();
+    const activeTab = String(data[ACTIVE_TOOL_KEY] || ws.active_tab || '').trim();
     if (activeTab) activateTab(activeTab);
 }
 
@@ -223,7 +230,6 @@ const dom = {
     statTools: $('#stat-tools'),
     statFindings: $('#stat-findings'),
     // Lists
-    trafficList: $('#traffic-list'),
     requestList: $('#request-list'),
     findingsList: $('#findings-list'),
     // Forms
@@ -309,7 +315,6 @@ const dom = {
     interceptBar: $('#intercept-bar'),
     interceptDot: $('#intercept-dot'),
     interceptText: $('#intercept-text'),
-    trafficCount: $('#traffic-count'),
     // Context menu
     ctxMenu: $('#ctx-menu'),
     repeaterTabMenu: $('#repeater-tab-menu'),
@@ -363,8 +368,6 @@ const dom = {
     // Repeater - follow redirect
     repeaterFollowRedirect: $('#repeater-follow-redirect'),
     wordlistUploadInput: $('#wordlist-upload-input'),
-    trafficFilterHost: $('#traffic-filter-host'),
-    trafficFilterMethod: $('#traffic-filter-method'),
     historyFilterHost: $('#history-filter-host'),
     historySearch: $('#history-search'),
     historyFilterStatus: $('#history-filter-status'),
@@ -433,12 +436,23 @@ if (uiSyncChannel) {
 // External Window
 // ══════════════════════════════════════════════════════════════════
 
-if (dom.btnExternal) {
-    dom.btnExternal.addEventListener('click', () => {
-        const url = chrome.runtime.getURL('sidepanel.html');
-        window.open(url, '_blank', 'width=900,height=800');
+function bindWindowAction(button, type, failure) {
+    button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+            const result = await chrome.runtime.sendMessage({type});
+            if (!result?.success) throw new Error(result?.error);
+        } catch (error) {
+            console.warn(failure, error);
+            alert(failure);
+        } finally {
+            button.disabled = false;
+        }
     });
 }
+
+bindWindowAction(dom.btnExternal, 'open_workspace', 'Could not open the GreyTab workspace.');
+bindWindowAction($('#btn-focus-browser'), 'focus_browser', 'Could not focus the browser window.');
 
 if (dom.btnScannerDetach) {
     dom.btnScannerDetach.addEventListener('click', () => {
@@ -453,16 +467,19 @@ if (dom.btnScannerDetach) {
 
 function activateTab(tabId) {
     if (!tabId) return;
-    if (!$(`.tab[data-tab="${CSS.escape(tabId)}"]`) || !$(`#tab-${CSS.escape(tabId)}`)) return;
-    $$('.tab').forEach((t) => t.classList.remove('tab--active'));
-    $$('.tab-content').forEach((c) => c.classList.remove('tab-content--active'));
-    const tabBtn = $(`.tab[data-tab="${tabId}"]`);
-    const tabPanel = $(`#tab-${tabId}`);
+    const tabBtn = $(`.tab[data-tab="${CSS.escape(tabId)}"]`);
+    const tabPanel = document.getElementById(`tab-${tabId}`);
     if (!tabBtn || !tabPanel) return;
-    tabBtn.classList.add('tab--active');
+    toolTabs.querySelectorAll('.tab').forEach(button => {
+        const selected = button === tabBtn;
+        button.classList.toggle('tab--active', selected);
+        button.setAttribute('aria-selected', String(selected));
+        button.tabIndex = selected ? 0 : -1;
+    });
+    $$('.tab-content').forEach(panel => panel.classList.remove('tab-content--active'));
     tabPanel.classList.add('tab-content--active');
     state.activeTab = tabId;
-    scheduleWorkspaceSave();
+    tabBtn.scrollIntoView({block: 'nearest', inline: 'nearest'});
 
     if (tabId === 'requests') openHistory();
     if (tabId === 'tools') loadTools();
@@ -474,10 +491,57 @@ function activateTab(tabId) {
     if (tabId === 'settings') loadSettings();
 }
 
-$$('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-        activateTab(tab.dataset.tab);
+function updateNavigationOrientation() {
+    toolTabs.setAttribute('aria-orientation', isWorkspaceWindow && desktopNavigation.matches ? 'vertical' : 'horizontal');
+    requestAnimationFrame(() => toolTabs.querySelector('.tab--active')?.scrollIntoView({block: 'nearest', inline: 'nearest'}));
+}
+
+updateNavigationOrientation();
+desktopNavigation.addEventListener('change', updateNavigationOrientation);
+
+const toolButtons = Array.from(toolTabs.querySelectorAll('.tab'));
+for (const button of toolButtons) {
+    const id = button.dataset.tab;
+    const panel = document.getElementById(`tab-${id}`);
+    button.id = `tool-${id}`;
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', panel.id);
+    const selected = button.classList.contains('tab--active');
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', button.id);
+    panel.tabIndex = 0;
+    button.addEventListener('click', () => {
+        activateTab(id);
+        if (!viewParams.has('detached') && !viewParams.has('tab')) {
+            chrome.storage.local.set({[ACTIVE_TOOL_KEY]: id}).catch(() => {});
+        }
     });
+}
+
+toolTabs.addEventListener('keydown', event => {
+    const buttons = toolButtons.filter(button => button.getClientRects().length > 0);
+    const index = buttons.indexOf(event.target);
+    if (index < 0) return;
+    const vertical = toolTabs.getAttribute('aria-orientation') === 'vertical';
+    const previous = vertical ? 'ArrowUp' : 'ArrowLeft';
+    const next = vertical ? 'ArrowDown' : 'ArrowRight';
+    let target;
+    if (event.key === 'Home') target = buttons[0];
+    else if (event.key === 'End') target = buttons.at(-1);
+    else if (event.key === previous) target = buttons.at(index - 1);
+    else if (event.key === next) target = buttons[(index + 1) % buttons.length];
+    if (!target) return;
+    event.preventDefault();
+    buttons[index].tabIndex = -1;
+    target.tabIndex = 0;
+    target.focus();
+});
+
+toolTabs.addEventListener('focusout', event => {
+    if (toolTabs.contains(event.relatedTarget)) return;
+    for (const button of toolButtons) button.tabIndex = button.classList.contains('tab--active') ? 0 : -1;
 });
 
 // Repeater response tabs (Raw/Render/Diff)
@@ -488,6 +552,7 @@ $$('.detail-tab[data-repeater-res]').forEach((tab) => {
         const which = tab.dataset.repeaterRes;
         dom.repeaterResRaw.style.display = which === 'raw' ? 'block' : 'none';
         dom.repeaterResRender.style.display = which === 'render' ? 'block' : 'none';
+        $('#repeater-extension-view').hidden = which !== 'extensions';
         const diffEl = document.getElementById('repeater-res-diff');
         if (diffEl) {
             diffEl.style.display = which === 'diff' ? 'block' : 'none';

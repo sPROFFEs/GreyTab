@@ -159,7 +159,9 @@ function renderRepeaterResponse(tab = getActiveRepeaterTab()) {
     }
     if (dom.repeaterTime) dom.repeaterTime.textContent = tab.time_text || '0ms';
     const view = $('.detail-tab--active[data-repeater-res]')?.dataset.repeaterRes || 'raw';
-    if (view === 'diff') {
+    if (view === 'extensions') {
+        refreshRepeaterExtensionView();
+    } else if (view === 'diff') {
         renderRepeaterDiff();
     } else if (view === 'render' && dom.repeaterResRender) {
         const preview = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">` + (tab.response_render || '');

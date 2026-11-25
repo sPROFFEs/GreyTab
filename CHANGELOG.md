@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Open the GreyTab desktop workspace automatically alongside Chromium. Use **Browser** to return to the active browser window, or `greytab --side-panel` to launch Chromium and open the toolbar panel on demand.
+- Group the desktop tools in a vertical navigation rail, with keyboard controls, connection labels and the compact horizontal navigation at smaller widths.
+- Keep desktop drafts and navigation independent from the toolbar panel. Existing panel drafts are available on the first desktop launch.
+- Resize History and Inspector side by side with the mouse or keyboard.
+- Inspect Burp JARs and BApps for references to Montoya and the legacy Extender API, including editor, menu and workspace UI hooks.
+- Install declarative GreyTab view packs that add offline formatting and header views to the message editors and workspace.
+- Browse a searchable extension catalog with local installs for native packs and official links for selected BApps.
+- Install HTTP Exchange Export from the catalog to copy a recorded request and response, with bodies or headers only, from History.
+
 ## 0.3.1 — 2026-11-18
 
 - Search and filter the full recorded HTTP session while rendering 200 requests per page. Pause live results, browse older pages and open exchanges directly from Site Map.

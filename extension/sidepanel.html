@@ -4,9 +4,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GreyTab Panel</title>
+  <title>GreyTab</title>
+  <link rel="icon" href="icons/icon48.png">
   <link rel="stylesheet" href="sidepanel.css">
   <link rel="stylesheet" href="sidepanel_syntax.css">
+  <link rel="stylesheet" href="workspace.css">
+  <link rel="stylesheet" href="extensions.css">
 </head>
 
 <body>
@@ -20,38 +23,50 @@
       <span class="header__title">GreyTab</span>
     </div>
     <div class="header__status">
-      <span id="ws-indicator" class="status-dot status-dot--disconnected" title="Backend connection"></span>
-      <span id="proxy-indicator" class="status-dot status-dot--disconnected" title="Proxy status"></span>
+      <div class="header__connection">
+        <span id="ws-indicator" class="status-dot status-dot--disconnected" title="Backend: Disconnected"></span>
+        <span class="header__connection-label" id="ws-label">Backend disconnected</span>
+      </div>
+      <div class="header__connection">
+        <span id="proxy-indicator" class="status-dot status-dot--disconnected" title="Proxy: Stopped"></span>
+        <span class="header__connection-label" id="proxy-label">Proxy stopped</span>
+      </div>
       <span id="mem-usage" class="header-mem" title="Backend RAM usage">RAM: --</span>
-      <button class="btn-icon" id="btn-external" title="Open in New Window">
+      <button class="btn-icon" id="btn-external" title="Open workspace" aria-label="Open workspace">
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
           <polyline points="15 3 21 3 21 9"></polyline>
           <line x1="10" y1="14" x2="21" y2="3"></line>
         </svg>
       </button>
+      <button class="btn btn--ghost btn--xs" id="btn-focus-browser" hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+          <path d="M3 9h18M7 6.5h1"></path>
+        </svg>
+        Browser
+      </button>
     </div>
   </header>
 
   <!-- LANDING PAGE -->
   <div id="landing-page" class="landing-page">
-    <div class="landing-card">
-      <h2>Start Operation</h2>
-      <p class="text-muted">Create a new session or load an existing project.</p>
+    <form class="landing-card" id="session-form">
+      <h2>New session</h2>
 
       <div class="form-group">
-        <label class="form-label">Session Name</label>
-        <input type="text" id="session-name" class="input" placeholder="e.g., Target_Alpha" autofocus />
+        <label class="form-label" for="session-name">Session name</label>
+        <input type="text" id="session-name" class="input" placeholder="e.g. Staging review" required autofocus />
       </div>
 
       <div class="form-group">
-        <label class="form-label">Scope (Domains)</label>
+        <label class="form-label" for="session-scope">Scope domains <span class="text-muted">(optional)</span></label>
         <input type="text" id="session-scope" class="input" placeholder="example.com, api.example.com" />
       </div>
 
-      <button class="btn btn--primary btn--block" id="btn-create-session"
+      <button type="submit" class="btn btn--primary btn--block" id="btn-create-session"
         style="width:100%; justify-content:center; margin-top:1rem;">
-        Initialize Session
+        Create session
       </button>
 
       <div class="landing-divider">
@@ -59,7 +74,7 @@
       </div>
 
       <div class="landing-project-actions">
-        <button class="btn btn--ghost btn--block" id="btn-load-project" style="width:100%; justify-content:center;">
+        <button type="button" class="btn btn--ghost btn--block" id="btn-load-project" style="width:100%; justify-content:center;">
           <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
@@ -69,7 +84,7 @@
         </button>
         <input type="file" id="file-load-project" accept=".pbx,.json" style="display:none;" />
 
-        <button class="btn btn--ghost btn--block" id="btn-load-session" style="width:100%; justify-content:center;">
+        <button type="button" class="btn btn--ghost btn--block" id="btn-load-session" style="width:100%; justify-content:center;">
           <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
@@ -82,7 +97,7 @@
       <div id="session-list-container" style="display:none; margin-top:1rem;">
         <div id="session-list" class="session-list"></div>
       </div>
-    </div>
+    </form>
   </div>
 
   <!-- MAIN APP -->
@@ -90,7 +105,7 @@
 
     <!-- Active Session Bar -->
     <div class="session-bar" id="session-active">
-      <span class="session-bar__label">Active:</span>
+      <span class="session-bar__label">Session</span>
       <span class="session-bar__name" id="active-session-name">&mdash;</span>
       <div class="session-bar__stats">
         <span class="stat" id="stat-requests" title="Requests">REQ: 0</span>
@@ -110,7 +125,9 @@
     </div>
 
     <!-- Tab Navigation -->
-    <nav class="tabs">
+    <div class="workspace-layout">
+    <nav class="tabs" aria-label="Workspace tools" role="tablist">
+      <span class="tabs__group" role="presentation" aria-hidden="true">Traffic</span>
       <button class="tab tab--active" data-tab="proxy">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -120,45 +137,6 @@
           </path>
         </svg>
         <span class="tab__label">Proxy</span>
-      </button>
-      <button class="tab" data-tab="repeater">
-        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-          fill="none">
-          <polyline points="17 1 21 5 17 9"></polyline>
-          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-          <polyline points="7 23 3 19 7 15"></polyline>
-          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-        </svg>
-        <span class="tab__label">Repeater</span>
-      </button>
-      <button class="tab" data-tab="intruder">
-        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-          fill="none">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        </svg>
-        <span class="tab__label">Intruder</span>
-      </button>
-      <button class="tab" data-tab="tools">
-        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-          fill="none">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
-        <span class="tab__label">Tools</span>
-      </button>
-      <button class="tab" data-tab="decoder">
-        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-          fill="none">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-        </svg>
-        <span class="tab__label">Decoder</span>
-      </button>
-      <button class="tab" data-tab="bookmarklets">
-        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-          fill="none">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-        </svg>
-        <span class="tab__label">Bookmarklets</span>
       </button>
       <button class="tab" data-tab="requests">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
@@ -170,6 +148,41 @@
         </svg>
         <span class="tab__label">History</span>
       </button>
+      <span class="tabs__group" role="presentation" aria-hidden="true">Workbench</span>
+      <button class="tab" data-tab="repeater">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <polyline points="17 1 21 5 17 9"></polyline>
+          <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+          <polyline points="7 23 3 19 7 15"></polyline>
+          <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        </svg>
+        <span class="tab__label">Repeater</span>
+      </button>
+      <button class="tab" data-tab="decoder">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        <span class="tab__label">Decoder</span>
+      </button>
+      <button class="tab" data-tab="utilities"><svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"/></svg><span class="tab__label">Utilities</span></button>
+      <button class="tab" data-tab="bookmarklets">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="tab__label">Bookmarklets</span>
+      </button>
+      <span class="tabs__group" role="presentation" aria-hidden="true">Testing</span>
+      <button class="tab" data-tab="intruder">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span class="tab__label">Intruder</span>
+      </button>
       <button class="tab" data-tab="autoscanner">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -179,7 +192,20 @@
         </svg>
         <span class="tab__label">AutoScanner</span>
       </button>
-      <button class="tab" data-tab="utilities"><svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"/></svg><span class="tab__label">Utilities</span></button>
+      <button class="tab" data-tab="tools">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+          fill="none">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span class="tab__label">Tools</span>
+      </button>
+      <button class="tab" data-tab="extensions">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect>
+          <rect x="3" y="14" width="7" height="7" rx="1"></rect><path d="M17.5 14v7M14 17.5h7"></path>
+        </svg>
+        <span class="tab__label">Extensions</span>
+      </button>
       <button class="tab" data-tab="settings">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -350,6 +376,7 @@
             <button class="detail-tab detail-tab--active" data-repeater-res="raw">Raw</button>
             <button class="detail-tab" data-repeater-res="render">Render</button>
             <button class="detail-tab" data-repeater-res="diff">Diff</button>
+            <button class="detail-tab" data-repeater-res="extensions" aria-controls="repeater-extension-view">Extensions</button>
             <button class="btn btn--ghost btn--xs" id="btn-repeater-explain" title="Plain-English summary via AI">Explain</button>
             <button class="btn btn--ghost btn--xs" id="btn-repeater-explain-diff" title="AI summarise the diff">Explain Diff</button>
           </div>
@@ -357,6 +384,7 @@
             <pre id="repeater-res-raw" class="code-block"></pre>
             <iframe sandbox="" referrerpolicy="no-referrer" title="Response preview" id="repeater-res-render" class="render-frame" style="display:none;"></iframe>
             <pre id="repeater-res-diff" class="code-block" style="display:none;"></pre>
+            <div class="message-extension-view" id="repeater-extension-view" hidden></div>
           </div>
         </div>
       </div>
@@ -893,6 +921,10 @@
           </div>
         </div>
 
+        <div id="history-splitter" class="panel-splitter panel-splitter--vertical" role="separator" tabindex="0"
+          aria-label="Resize History and Inspector" aria-controls="request-detail" aria-orientation="vertical"
+          aria-valuemin="38" aria-valuemax="67" aria-valuenow="55"></div>
+
         <!-- Findings Popup (centered internal popup) -->
         <div class="findings-backdrop" id="history-findings-panel" style="display:none;">
           <div class="findings-popup">
@@ -927,6 +959,7 @@
               <button class="detail-tab detail-tab--active" data-detail="request">Request</button>
               <button class="detail-tab" data-detail="response">Response</button>
               <button class="detail-tab" data-detail="inspect">Inspect</button>
+              <button class="detail-tab" data-detail="extensions" aria-controls="history-extension-view">Extensions</button>
             </div>
             <div class="detail-actions-row">
               <button class="btn btn--ghost btn--xs" id="btn-send-to-repeater">To Repeater</button>
@@ -943,6 +976,7 @@
           <div class="detail-content-flex" id="detail-content">
             <pre id="detail-request" class="code-block"></pre>
             <pre id="detail-response" class="code-block" style="display:none;"></pre>
+            <div class="message-extension-view" id="history-extension-view" hidden></div>
             <div id="history-inspector" hidden>
               <form id="history-note-form">
                 <label for="history-note">Note</label>
@@ -1148,6 +1182,71 @@
         </section>
       </div>
     </div>
+    <div class="tab-content" id="tab-extensions">
+      <nav class="extension-nav" role="tablist" aria-label="Extensions">
+        <button type="button" id="extension-tab-catalog" role="tab" aria-controls="extension-page-catalog" aria-selected="true">Catalog</button>
+        <button type="button" id="extension-tab-installed" role="tab" aria-controls="extension-page-installed" aria-selected="false" tabindex="-1">Installed</button>
+        <button type="button" id="extension-tab-compatibility" role="tab" aria-controls="extension-page-compatibility" aria-selected="false" tabindex="-1">Burp compatibility</button>
+        <button type="button" id="extension-tab-views" role="tab" aria-controls="extension-page-views" aria-selected="false" tabindex="-1">Message views</button>
+      </nav>
+      <div class="extension-page" id="extension-page-catalog" role="tabpanel" aria-labelledby="extension-tab-catalog" tabindex="0">
+        <div class="extension-catalog-toolbar">
+          <div class="extension-catalog-filters">
+            <label for="extension-catalog-search">Search</label>
+            <input id="extension-catalog-search" class="input" type="search" maxlength="100" placeholder="Name or feature">
+            <label for="extension-catalog-source">Source</label>
+            <select id="extension-catalog-source" class="input">
+              <option value="all">All extensions</option>
+              <option value="native">Native view packs</option>
+              <option value="bapp">BApp listings</option>
+            </select>
+          </div>
+          <p id="extension-catalog-status" class="text-muted" role="status"></p>
+        </div>
+        <div id="extension-catalog-list" class="extension-catalog-list"></div>
+      </div>
+      <div class="extension-page" id="extension-page-compatibility" role="tabpanel" aria-labelledby="extension-tab-compatibility" tabindex="0" hidden>
+        <section class="section extension-section">
+          <header class="section__header"><h3>Burp compatibility</h3></header>
+          <p>Inspect a JAR or BApp for references to Montoya, the legacy API and interface contributions.</p>
+          <form id="burp-archive-form" class="extension-form">
+            <label for="burp-archive">Burp extension archive</label>
+            <input id="burp-archive" class="input" type="file" accept=".jar,.bapp,.zip" required>
+            <button class="btn btn--ghost btn--sm" type="submit">Inspect archive</button>
+          </form>
+          <p role="status" id="burp-archive-status" class="text-muted">Maximum archive size is 16 MiB.</p>
+          <dl id="burp-archive-report" class="extension-report" hidden></dl>
+        </section>
+      </div>
+      <div class="extension-page" id="extension-page-installed" role="tabpanel" aria-labelledby="extension-tab-installed" tabindex="0" hidden>
+        <section class="section extension-section">
+          <header class="section__header"><h3>Installed view packs</h3></header>
+          <p>Control which read-only views appear in the workspace and HTTP editors.</p>
+          <form id="view-pack-form" class="extension-form">
+            <label for="view-pack-file">GreyTab view pack</label>
+            <input id="view-pack-file" class="input" type="file" accept=".json,application/json" required>
+            <button class="btn btn--ghost btn--sm" type="submit">Install view pack</button>
+          </form>
+          <p role="status" id="view-pack-status" class="text-muted"></p>
+          <div id="view-pack-list" class="extension-pack-list"></div>
+        </section>
+      </div>
+      <div class="extension-page" id="extension-page-views" role="tabpanel" aria-labelledby="extension-tab-views" tabindex="0" hidden>
+        <section class="section extension-section">
+          <header class="section__header"><h3>Offline message views</h3></header>
+          <form id="workspace-extension-form" class="extension-form">
+            <label for="workspace-extension-picker">View</label>
+            <select id="workspace-extension-picker" class="input"></select>
+            <label for="workspace-extension-input">Message or JSON body</label>
+            <textarea id="workspace-extension-input" class="input input--code" rows="5" maxlength="65536" spellcheck="false"></textarea>
+            <button class="btn btn--primary btn--sm" type="submit">Apply view</button>
+          </form>
+          <p role="status" id="workspace-extension-status" class="text-muted"></p>
+          <pre id="workspace-extension-output" class="code-block extension-output" hidden></pre>
+        </section>
+      </div>
+    </div>
+
     <div class="tab-content" id="tab-settings">
 
       <!-- Proxy Settings -->
@@ -1394,6 +1493,7 @@
 
     </div>
 
+    </div> <!-- End workspace layout -->
   </div> <!-- End App Container -->
 
   <!-- Context Menu (dynamically positioned via JS) -->
@@ -1540,7 +1640,21 @@
 
   <!-- Modular JS: loaded in dependency order -->
 
+  <template id="message-extension-template">
+    <div class="message-extension-controls">
+      <label class="message-extension-source" hidden>Message <select class="input input--sm">
+        <option value="request">Request</option><option value="response">Response</option><option value="exchange" hidden>Exchange</option>
+      </select></label>
+      <label>View <select class="input input--sm message-extension-picker"></select></label>
+      <button type="button" class="btn btn--ghost btn--sm message-extension-copy" disabled>Copy view</button>
+    </div>
+    <p class="text-muted message-extension-status" role="status"></p>
+    <pre class="code-block extension-output" hidden></pre>
+  </template>
   <script src="js/core.js"></script>
+  <script src="js/view-packs.js"></script>
+  <script src="js/extension-catalog.js"></script>
+  <script src="js/extensions.js"></script>
   <script src="js/repeater.js"></script>
   <script src="js/proxy.js"></script>
   <script src="js/history.js"></script>

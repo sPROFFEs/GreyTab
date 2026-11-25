@@ -93,6 +93,7 @@ function showContextMenu(x, y, flowOrLog) {
     `;
 
     menu.innerHTML = items;
+    appendHistoryExtensionActions(menu, flowOrLog.id);
     menu.style.display = 'block';
 
     // Position menu within viewport
@@ -111,7 +112,7 @@ function showContextMenu(x, y, flowOrLog) {
     menu.style.top = top + 'px';
 
     // Attach click handlers
-    menu.querySelectorAll('.ctx-menu__item').forEach(item => {
+    menu.querySelectorAll('.ctx-menu__item[data-action]').forEach(item => {
         item.addEventListener('click', () => handleContextAction(item.dataset.action), { once: true });
     });
 }
@@ -267,7 +268,6 @@ async function handleContextAction(action) {
             try {
                 await apiRequest('DELETE', `/api/logs/http/${id}?session_id=${encodeURIComponent(sessionId)}`);
                 if (state.sessionId !== sessionId) return;
-                state.trafficItems = state.trafficItems.filter((x) => Number(x.id || 0) !== id);
                 if (Number(state.selectedLogId) === id) closeHistoryDetail();
                 loadHttpHistory({keepScroll: true});
             } catch (e) {

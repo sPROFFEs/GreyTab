@@ -31,6 +31,7 @@ from core.ai_agent import (
     normalize_ai_agent_config,
 )
 from core import extras as gx
+from core.burp_extensions import MAX_ARCHIVE_BYTES, inspect_burp_archive
 
 
 # ── Globals ─────────────────────────────────────────────────────
@@ -1233,7 +1234,21 @@ async def health():
         "proxy_port": config.proxy.port,
         "memory_mb": round(mem_mb, 1),
         "ws_clients": len(ws_connections),
+        "open_workspace_on_launch": getattr(app.state, "open_workspace_on_launch", False),
     }
+
+
+@app.post('/api/extensions/inspect')
+async def inspect_extension_archive(request: Request):
+    archive = bytearray()
+    async for chunk in request.stream():
+        if len(archive) + len(chunk) > MAX_ARCHIVE_BYTES:
+            raise HTTPException(status_code=413, detail='Extension archives must be 16 MiB or smaller.')
+        archive.extend(chunk)
+    try:
+        return await asyncio.to_thread(inspect_burp_archive, archive)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 # ──────────────────────────────────────────────────────────────────

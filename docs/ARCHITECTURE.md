@@ -35,6 +35,12 @@ Repeater shares a connection pool but rejects inherited response cookies between
 
 `background.js` proxies API calls and forwards backend events. A heartbeat keeps its WebSocket active across idle MV3 periods. `sidepanel.html` loads the scripts in dependency order: core state, raw HTTP/replay, proxy events, history/tools, decoder, bookmarklets, scanner/settings, utilities and initialization. `terminal.html` retrieves tool output by character offset, independently of when the tab was opened.
 
+On browser startup or first extension installation, the service worker reads the launcher preference from `/api/health`. It opens or focuses one Chromium popup with the desktop workspace and leaves the toolbar action available for the side panel. Desktop and side-panel drafts use separate storage keys. The desktop reads the legacy side-panel snapshot on its first launch.
+
+`core/burp_extensions.py` reads Java class references from bounded archives through `/api/extensions/inspect`. BApp inspection follows the manifest's Java entry point in memory. The browser uses declarative view pack definitions stored in extension-local storage. `view-packs.js` implements the offline message transforms and `extensions.js` mounts them in native HTML controls. Captured text and report values are rendered as text nodes.
+
+`extension-catalog.js` supplies bundled definitions for native packs and official links for selected BApps. Catalog installs share manifest validation and storage with file imports. Clipboard export uses the selected History exchange and runs on an explicit user action.
+
 History filters in SQLite and pages by request ID with a 200-row DOM budget. Live refresh is coalesced and respects the current page and scroll position. The panel fetches message bodies only when opening an exchange. Page regex runs in a worker with a time limit. The site map groups metadata directly in SQLite. HAR reads small descending batches and streams entries as JSON. The extension downloads that response as a blob without round-tripping it through the service worker. Scanner attempts have independent storage/rendering budgets. Workspace saves are throttled; SQLite remains the durable traffic store. Repeater previews run in a sandbox with network resources and scripts blocked.
 
 ## Persistence

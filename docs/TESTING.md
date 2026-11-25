@@ -26,16 +26,16 @@ The suite starts local HTTP and HTTPS fixtures, a real FastAPI/mitmproxy backend
 
 Ports 8080, 8443 and 19443–19445 must be free. Use `--chromium /absolute/path/to/chrome` to select an existing copy. Playwright's headless test runner may disable sandboxing in CI containers; the production launcher keeps Chromium's sandbox enabled.
 
-Artifacts include screenshots of ten views at 320, 380, 768 and 1440 pixels, backend logs, HAR, a `.pbx` project, an HTML findings report and `qa.json`. Check the JSON and inspect screenshots; successful DOM assertions alone do not establish visual quality. Screenshot datasets contain fixture credentials/tokens only.
+Artifacts include screenshots of eleven views at 320, 380, 768 and 1440 pixels, backend logs, HAR, a `.pbx` project, an HTML findings report and `qa.json`. Check the JSON and inspect screenshots; successful DOM assertions alone do not establish visual quality. Screenshot datasets contain fixture credentials/tokens only.
 
-For focused History, inspector, Repeater editor and responsive layout coverage, run:
+For focused desktop startup, History, inspector, Repeater editor and responsive layout coverage, run:
 
 ```bash
 .venv/bin/pytest -q tests/test_history_workspace.py
 .venv/bin/python tests/browser_smoke.py --inspection-only --output /tmp/greytab-history-qa
 ```
 
-This run captures all ten views at four widths plus the populated inspector. It checks that a paused page stays stable as traffic arrives, an old note is searchable, repeated query fields are visible, the site map opens matching traffic and the full-session HAR downloads as valid JSON.
+This run opens the desktop workspace automatically in a clean Chromium profile. It checks window reuse, browser focus, keyboard navigation and separate drafts. It captures all eleven views at four widths plus the populated inspector, expanded settings and a dialog. It also checks pane resizing, History pagination, complete HAR export, a static BApp report, catalog search and filters, pack installation and removal, and copying a recorded exchange from History to the clipboard.
 
 ## Installation validation
 

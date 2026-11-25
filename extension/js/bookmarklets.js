@@ -171,6 +171,7 @@ function renderBookmarkletRow(item, isCustom) {
             </button>` : ''}
         </div>
     `;
+    if (isWorkspaceWindow) card.querySelector('[data-bm-run]').disabled = true;
     return card;
 }
 
@@ -339,6 +340,11 @@ document.getElementById('btn-bm-refresh-tab')?.addEventListener('click', updateB
 async function updateBookmarkletTargetInfo() {
     const info = document.getElementById('bookmarklet-target-info');
     if (!info) return;
+    if (isWorkspaceWindow) {
+        document.getElementById('btn-bm-run-custom').disabled = true;
+        info.textContent = 'To run a bookmarklet, open GreyTab in the browser side panel on the page you want to inspect.';
+        return;
+    }
     const tab = await getActiveTab();
     if (!tab) {
         info.textContent = 'No active tab.';

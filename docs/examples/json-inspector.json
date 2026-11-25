@@ -1,0 +1,14 @@
+{
+  "format": "greytab-views-1",
+  "id": "example.json-inspector",
+  "name": "JSON Inspector",
+  "version": "1.0",
+  "views": [
+    {
+      "id": "json",
+      "label": "Readable JSON",
+      "operation": "json-format",
+      "placements": ["workspace", "history-response", "repeater-response", "history-menu"]
+    }
+  ]
+}

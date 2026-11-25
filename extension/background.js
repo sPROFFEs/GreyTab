@@ -5,11 +5,13 @@
 
 const API_BASE = 'http://127.0.0.1:8443';
 const WS_URL = 'ws://127.0.0.1:8443/ws';
+const WORKSPACE_URL = chrome.runtime.getURL('sidepanel.html?view=workspace');
 
 let ws = null;
 let wsReconnectTimer = null;
 let isConnected = false;
 let heartbeat = null;
+let openingWorkspace = null;
 
 // ── WebSocket Management ───────────────────────────────────────
 
@@ -72,6 +74,53 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 });
 
+async function openWorkspace() {
+    if (!openingWorkspace) {
+        openingWorkspace = (async () => {
+            const popups = await chrome.windows.getAll({populate: true, windowTypes: ['popup']});
+            const existing = popups.find(window => window.tabs.some(tab =>
+                tab.url === WORKSPACE_URL || tab.pendingUrl === WORKSPACE_URL));
+            if (existing) {
+                if (existing.state === 'minimized') await chrome.windows.update(existing.id, {state: 'normal'});
+                return chrome.windows.update(existing.id, {focused: true});
+            }
+            return chrome.windows.create({url: WORKSPACE_URL, type: 'popup', width: 1360, height: 900});
+        })().finally(() => { openingWorkspace = null; });
+    }
+    return openingWorkspace;
+}
+
+async function openStartupWorkspace() {
+    try {
+        const response = await fetch(`${API_BASE}/api/health`);
+        if (!response.ok) return;
+        const health = await response.json();
+        if (health.open_workspace_on_launch === true) await openWorkspace();
+    } catch (error) {
+        console.warn('Unable to open the GreyTab workspace:', error.message);
+    }
+}
+
+chrome.runtime.onStartup.addListener(openStartupWorkspace);
+
+async function getBrowserWindow(sender) {
+    if (sender.tab?.windowId !== undefined) {
+        const current = await chrome.windows.get(sender.tab.windowId).catch(() => null);
+        if (current?.type === 'normal') return current;
+    }
+    const browser = await chrome.windows.getLastFocused({windowTypes: ['normal']}).catch(() => null);
+    if (browser?.type === 'normal') return browser;
+    const [first] = await chrome.windows.getAll({windowTypes: ['normal']});
+    return first;
+}
+
+async function focusBrowser(sender) {
+    const browser = await getBrowserWindow(sender);
+    if (!browser) return chrome.windows.create({url: 'about:blank', type: 'normal'});
+    if (browser.state === 'minimized') await chrome.windows.update(browser.id, {state: 'normal'});
+    return chrome.windows.update(browser.id, {focused: true});
+}
+
 // ── Message Handler ────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -90,14 +139,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    if (message.type === 'open_workspace' || message.type === 'focus_browser') {
+        const action = message.type === 'open_workspace' ? openWorkspace() : focusBrowser(sender);
+        action.then(window => sendResponse({success: true, windowId: window.id}))
+            .catch(error => sendResponse({success: false, error: error.message}));
+        return true;
+    }
+
     if (message.type === 'get_current_url') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]) {
-                sendResponse({ url: tabs[0].url, title: tabs[0].title });
-            } else {
-                sendResponse({ url: '', title: '' });
-            }
-        });
+        getBrowserWindow(sender).then(async browser => {
+            const [tab] = browser ? await chrome.tabs.query({active: true, windowId: browser.id}) : [];
+            sendResponse({url: tab?.url || '', title: tab?.title || ''});
+        }).catch(() => sendResponse({url: '', title: ''}));
         return true;
     }
 
@@ -132,12 +185,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ── Initialize ─────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({reason}) => {
     console.log('[PB] PentestBrowser extension installed');
     // Enable side panel
     chrome.sidePanel.setOptions({
         enabled: true,
     });
+    if (reason === 'install') openStartupWorkspace();
 });
 
 // Auto-connect WebSocket on startup

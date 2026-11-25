@@ -27,6 +27,8 @@ from playwright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from tests.test_burp_extensions import sample_bapp_archive
+
 
 class Target(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -100,6 +102,27 @@ async def check_history_workspace(page, target_page, api, output, ok):
     })
     await page.click('.tab[data-tab="requests"]')
     await wait(page, 'document.querySelectorAll("#request-list > .request-item").length === 200')
+    await page.locator('.history-row-main').first.click()
+    await page.click('[data-detail="inspect"]')
+    await wait(page, 'document.querySelector("#history-inspector-fields").textContent.includes("Query parameters")')
+    splitter = page.locator('#history-splitter')
+    left_pane = page.locator('.history-list-pane')
+    original = (await left_pane.bounding_box())['width']
+    await splitter.press('ArrowRight')
+    assert (await left_pane.bounding_box())['width'] > original
+    handle = await splitter.bounding_box()
+    await page.mouse.move(handle['x'] + 2, handle['y'] + handle['height'] / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle['x'] - 150, handle['y'] + handle['height'] / 2, steps=6)
+    await page.mouse.up()
+    assert (await left_pane.bounding_box())['width'] < original
+    await splitter.dblclick()
+    assert abs((await left_pane.bounding_box())['width'] - original) < 1
+    ok('History and Inspector resize by mouse and keyboard')
+    await splitter.blur()
+    await page.mouse.move(0, 0)
+    await page.screenshot(path=output / 'desktop-history-1440.png', animations='disabled', clip={'x': 0, 'y': 0, 'width': 1440, 'height': 720})
+    await page.click('#btn-close-detail')
     newer = page.locator('#btn-history-newer')
     older = page.locator('#btn-history-older')
     assert await newer.is_disabled() and not await older.is_disabled()
@@ -142,7 +165,7 @@ async def check_history_workspace(page, target_page, api, output, ok):
 
     for width in (320, 380, 768, 1440):
         await page.set_viewport_size({'width': width, 'height': 950})
-        await page.screenshot(path=output / f'history-inspector-{width}.png')
+        await page.screenshot(path=output / f'history-inspector-{width}.png', animations='disabled')
         assert await page.evaluate('document.querySelector("#history-inspector").clientWidth > 100')
         assert await page.evaluate('document.querySelector("#request-detail").getBoundingClientRect().right <= innerWidth')
     await page.click('#btn-close-detail')
@@ -189,19 +212,217 @@ async def check_history_workspace(page, target_page, api, output, ok):
     await page.click('#btn-repeater-send')
     await wait(page, 'document.querySelector("#repeater-status").textContent === "200"')
     await page.mouse.move(0, 0)
-    await page.screenshot(path=output / 'repeater-exchange-1440.png', clip={'x': 0, 'y': 0, 'width': 1440, 'height': 742})
+    await page.screenshot(path=output / 'repeater-exchange-1440.png', animations='disabled', clip={'x': 0, 'y': 0, 'width': 1440, 'height': 742})
 
 
 async def capture_views(page, output):
     for width, height in [(320, 850), (380, 850), (768, 1000), (1440, 1000)]:
         await page.set_viewport_size({'width': width, 'height': height})
-        for name in ['proxy', 'repeater', 'intruder', 'tools', 'decoder', 'bookmarklets', 'requests', 'autoscanner', 'utilities', 'settings']:
+        for name in ['proxy', 'repeater', 'intruder', 'tools', 'decoder', 'bookmarklets', 'requests', 'autoscanner', 'utilities', 'extensions', 'settings']:
             await page.click(f'.tab[data-tab="{name}"]')
             await page.evaluate("document.querySelector('.tab-content--active').scrollTop = 0")
-            await page.screenshot(path=output / f'{name}-{width}.png')
+            await page.screenshot(path=output / f'{name}-{width}.png', animations='disabled')
             bounds = await page.locator('.tab-content--active').bounding_box()
             assert bounds['x'] + bounds['width'] <= width + 1, (name, bounds)
             assert bounds['y'] + bounds['height'] <= height + 1, (name, bounds)
+
+
+async def check_desktop_window(context, worker, output, ok):
+    workspace_url = f'chrome-extension://{worker.url.split("/")[2]}/sidepanel.html?view=workspace'
+    for _ in range(150):
+        page = next((candidate for candidate in context.pages if candidate.url == workspace_url), None)
+        if page:
+            break
+        await asyncio.sleep(.05)
+    else:
+        raise AssertionError('GreyTab did not open its desktop workspace at startup')
+
+    windows = await worker.evaluate('chrome.windows.getAll({populate: true})')
+    normal = next(window for window in windows if window['type'] == 'normal')
+    assert sum(window['type'] == 'popup' for window in windows) == 1
+    await page.set_viewport_size({'width': 1440, 'height': 900})
+    await page.wait_for_selector('#btn-focus-browser', state='visible')
+    await wait(page, 'document.querySelector("#ws-label").textContent === "Backend connected"')
+    await page.screenshot(path=output / 'desktop-start-1440.png')
+
+    # Headless Chromium reports both windows as focused. Check the result of the
+    # window API call for the same request used by the Browser button.
+    await page.click('#btn-focus-browser')
+    result = await page.evaluate('chrome.runtime.sendMessage({type: "focus_browser"})')
+    assert result == {'success': True, 'windowId': normal['id']}, result
+    target = await worker.evaluate('''async id => {
+        const [tab] = await chrome.tabs.query({windowId: id, active: true});
+        return tab.url;
+    }''', normal['id'])
+    assert not target.startswith('chrome-extension://'), target
+
+    panel_url = workspace_url.split('?')[0]
+    async with context.expect_page() as panel_event:
+        await worker.evaluate('''([windowId, url]) => chrome.tabs.create({windowId, url})''', [normal['id'], panel_url])
+    panel = await panel_event.value
+    await panel.locator('#btn-external').click()
+    assert await worker.evaluate('chrome.windows.getAll({windowTypes: ["popup"]}).then(w => w.length)') == 1
+    await panel.close()
+    assert await page.locator('.tabs').get_attribute('aria-orientation') == 'vertical'
+    ok('Desktop workspace opens once, focuses Chromium and reuses its existing window')
+    return page
+
+
+async def check_expanded_settings(page, output):
+    for width in (320, 380, 1440):
+        await page.set_viewport_size({'width': width, 'height': 850 if width < 400 else 1000})
+        await page.click('.tab[data-tab="settings"]')
+        details = page.locator('#ai-settings-details')
+        await details.evaluate('(element) => { element.open = true; }')
+        await details.locator('summary').scroll_into_view_if_needed()
+        await page.screenshot(path=output / f'settings-expanded-{width}.png')
+        await page.click('#btn-ai-help')
+        dialog = page.locator('#ai-help-modal .modal-content')
+        bounds = await dialog.bounding_box()
+        assert bounds and bounds['x'] >= 0 and bounds['x'] + bounds['width'] <= width, bounds
+        assert await dialog.locator('.modal-body').evaluate('body => body.scrollWidth <= body.clientWidth + 1')
+        await page.screenshot(path=output / f'settings-dialog-{width}.png')
+        await page.click('#btn-close-ai-help')
+
+
+async def check_workspace_drafts(context, page, output, ok):
+    await page.click('.tab[data-tab="repeater"]')
+    await page.locator('#repeater-raw-request').fill('GET /desktop-draft HTTP/1.1\nHost: example.test\n\n')
+    await wait(page, '''(async () => {
+        const snapshot = await chrome.storage.local.get('greytab_desktop_state_v1');
+        return snapshot.greytab_desktop_state_v1?.repeater_state.tabs.some(tab => tab.raw_request.includes('/desktop-draft'));
+    })()''')
+
+    panel = await context.new_page()
+    await panel.set_viewport_size({'width': 380, 'height': 850})
+    await panel.goto(page.url.split('?')[0])
+    await panel.wait_for_selector('#app-container', state='visible')
+    assert await panel.locator('.tabs').get_attribute('aria-orientation') == 'horizontal'
+    await panel.click('.tab[data-tab="repeater"]')
+    await panel.locator('#repeater-raw-request').fill('GET /panel-draft HTTP/1.1\nHost: example.test\n\n')
+    await wait(panel, '''(async () => {
+        const snapshot = await chrome.storage.local.get('greytab_workspace_state_v1');
+        return snapshot.greytab_workspace_state_v1?.repeater_state.tabs.some(tab => tab.raw_request.includes('/panel-draft'));
+    })()''')
+    await panel.click('.tab[data-tab="requests"]')
+    await wait(panel, 'document.querySelectorAll("#request-list .request-item").length > 0')
+    await panel.locator('.history-row-main').filter(has_text='/catalog').first.click()
+    await panel.click('[data-detail="inspect"]')
+    await wait(panel, 'document.querySelector("#history-inspector-fields").textContent.includes("Query parameters")')
+    await panel.screenshot(path=output / 'desktop-qa-side-panel-380.png', animations='disabled')
+    await panel.close()
+
+    await page.reload()
+    await page.wait_for_selector('#tab-repeater', state='visible')
+    assert '/desktop-draft' in await page.locator('#repeater-raw-request').input_value()
+    ok('Desktop and toolbar panel preserve their own Repeater drafts')
+
+
+async def check_extension_views(page, output, ok):
+    await page.click('.tab[data-tab="extensions"]')
+    catalog = page.locator('#extension-catalog-list')
+    await page.get_by_role('button', name='Install JSON Inspector').wait_for()
+    assert await catalog.locator('article').count() == 4
+    await page.locator('#extension-tab-catalog').press('ArrowRight')
+    assert await page.locator('#extension-tab-installed').get_attribute('aria-selected') == 'true'
+    await page.locator('#extension-tab-installed').press('ArrowLeft')
+    await page.select_option('#extension-catalog-source', 'bapp')
+    assert await catalog.locator('article').count() == 2
+    jq = page.get_by_role('link', name='View JQ on BApp Store')
+    assert await jq.get_attribute('href') == 'https://portswigger.net/bappstore/c0d90a42c99848588d3df017cca717b5'
+    assert await jq.get_attribute('rel') == 'noopener noreferrer'
+    assert await catalog.get_by_role('button').count() == 0
+    await page.fill('#extension-catalog-search', 'nothing matches')
+    assert 'No extensions match' in await catalog.inner_text()
+    await page.fill('#extension-catalog-search', 'copy http exchanges')
+    assert await catalog.locator('article').count() == 1
+    await page.fill('#extension-catalog-search', '')
+    await page.select_option('#extension-catalog-source', 'all')
+    await page.get_by_role('button', name='Install JSON Inspector').click()
+    await page.get_by_role('button', name='Manage JSON Inspector').wait_for()
+    await page.get_by_role('button', name='Install HTTP Exchange Export').click()
+    await page.get_by_role('button', name='Manage HTTP Exchange Export').wait_for()
+    await page.get_by_role('button', name='Manage JSON Inspector').click()
+    assert await page.get_by_role('checkbox', name='Enable JSON Inspector').is_checked()
+    await page.locator('#view-pack-file').set_input_files(ROOT / 'docs/examples/json-inspector.json')
+    await page.click('#view-pack-form button')
+    await page.locator('#view-pack-status', has_text='JSON Inspector saved.').wait_for()
+    assert await page.get_by_role('checkbox', name='Enable JSON Inspector').count() == 1
+    await page.click('#extension-tab-catalog')
+    await page.get_by_role('button', name='Manage JSON Inspector').wait_for()
+
+    await page.click('#extension-tab-compatibility')
+    await page.locator('#burp-archive').set_input_files({
+        'name': 'inspector.bapp', 'mimeType': 'application/octet-stream', 'buffer': sample_bapp_archive(),
+    })
+    await page.click('#burp-archive-form button')
+    report = page.locator('#burp-archive-report')
+    await report.wait_for(state='visible')
+    result = await report.inner_text()
+    for expected in ['build/inspector.jar', 'Montoya', 'Legacy Extender', 'Suite tab', 'HTTP response editor', 'Context menu', 'Swing']:
+        assert expected in result, result
+
+    await page.click('#extension-tab-views')
+    choice = 'example.json-inspector:json'
+    await page.select_option('#workspace-extension-picker', choice)
+    await page.fill('#workspace-extension-input', '{"first":9007199254740993,"display":"<b>example</b>"}')
+    await page.click('#workspace-extension-form button')
+    assert '9007199254740993' in await page.text_content('#workspace-extension-output')
+    assert await page.locator('#workspace-extension-output b').count() == 0
+
+    for width in (320, 380, 1440):
+        await page.set_viewport_size({'width': width, 'height': 1000})
+        await page.click('#extension-tab-catalog')
+        await page.screenshot(path=output / f'extension-catalog-{width}.png', animations='disabled')
+        await page.click('#extension-tab-compatibility')
+        await page.screenshot(path=output / f'extension-archive-{width}.png', animations='disabled')
+        await page.click('#extension-tab-views')
+        await page.locator('#workspace-extension-input').scroll_into_view_if_needed()
+        await page.screenshot(path=output / f'extension-format-{width}.png', animations='disabled')
+
+    await page.click('.tab[data-tab="requests"]')
+    await page.click('#btn-history-reset')
+    await page.locator('.history-row-main').filter(has_text='/catalog').first.click(button='right')
+    await page.get_by_role('button', name='JSON Inspector · Readable JSON').click()
+    await wait(page, 'document.querySelector("#history-extension-view pre").textContent.includes(\'"ok": true\')')
+    assert await page.input_value('#history-extension-view .message-extension-picker') == choice
+    await page.click('#btn-close-detail')
+
+    await page.locator('.history-row-main').filter(has_text='/catalog').first.click(button='right')
+    await page.get_by_role('button', name='HTTP Exchange Export · Request and response', exact=True).click()
+    exchange = page.locator('#history-extension-view pre')
+    assert 'GET /catalog' in await exchange.text_content()
+    assert 'HTTP/1.1 200' in await exchange.text_content()
+    await page.get_by_role('button', name='Copy view').click()
+    await page.locator('#history-extension-view .message-extension-status', has_text='View copied.').wait_for()
+    await page.select_option('#history-extension-view .message-extension-picker', 'greytab.exchange-export:headers')
+    assert 'HTTP/1.1 200' in await exchange.text_content()
+    assert '{"ok": true}' not in await exchange.text_content()
+    await page.screenshot(path=output / 'extension-exchange-1440.png', animations='disabled')
+    await page.click('#btn-close-detail')
+
+    await page.click('.tab[data-tab="repeater"]')
+    await page.click('[data-repeater-res="extensions"]')
+    await page.select_option('#repeater-extension-view .message-extension-picker', choice)
+    assert '"method": "GET"' in await page.text_content('#repeater-extension-view pre')
+    await page.click('[data-repeater-res="raw"]')
+
+    await page.reload()
+    await page.wait_for_selector('#app-container', state='visible')
+    await page.click('.tab[data-tab="extensions"]')
+    await page.get_by_role('button', name='Manage HTTP Exchange Export').wait_for()
+    await page.click('#extension-tab-installed')
+    toggle = page.get_by_role('checkbox', name='Enable JSON Inspector')
+    assert await toggle.is_checked()
+    await toggle.uncheck()
+    await wait(page, '!Array.from(document.querySelector("#workspace-extension-picker").options).some(option => option.value.startsWith("example."))')
+    await page.get_by_role('button', name='Remove JSON Inspector').click()
+    await wait(page, '!document.querySelector("#view-pack-list").textContent.includes("JSON Inspector")')
+    await page.get_by_role('button', name='Remove HTTP Exchange Export').click()
+    await page.click('#extension-tab-catalog')
+    await page.get_by_role('button', name='Install HTTP Exchange Export').wait_for()
+    await page.screenshot(path=output / 'extension-catalog-clean-1440.png', animations='disabled')
+    ok('Extension catalog, BApp report, native pack lifecycle and HTTP exchange clipboard export')
 
 
 async def run(chrome, output, inspection_only=False):
@@ -214,7 +435,12 @@ async def run(chrome, output, inspection_only=False):
     for server in (target, secure): threading.Thread(target=server.serve_forever, daemon=True).start()
     env = {**os.environ, 'GREYTAB_RUNTIME_DIR': str(runtime), 'GREYTAB_CHROME_BIN': chrome}
     log = (output / 'backend.log').open('w')
-    backend = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'core.api:app', '--host', '127.0.0.1', '--port', '8443'], cwd=ROOT, env=env, stdout=log, stderr=log, start_new_session=True)
+    backend_args = ['-m', 'uvicorn', 'core.api:app', '--host', '127.0.0.1', '--port', '8443']
+    if inspection_only:
+        backend_args = ['-c', 'import uvicorn; from core.api import app; '
+                        'app.state.open_workspace_on_launch = True; '
+                        'uvicorn.run(app, host="127.0.0.1", port=8443)']
+    backend = subprocess.Popen([sys.executable, *backend_args], cwd=ROOT, env=env, stdout=log, stderr=log, start_new_session=True)
     async def api(method, path, **kwargs):
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.request(method, 'http://127.0.0.1:8443' + path, **kwargs)
@@ -237,17 +463,29 @@ async def run(chrome, output, inspection_only=False):
             context = await p.chromium.launch_persistent_context(str(runtime / 'profile'), executable_path=chrome, headless=True, args=[f'--disable-extensions-except={ROOT / "extension"}', f'--load-extension={ROOT / "extension"}', '--proxy-server=http://127.0.0.1:8080', '--proxy-bypass-list=<-loopback>;127.0.0.1:8443;localhost:8443', f'--ignore-certificate-errors-spki-list={spki}', '--disable-quic'])
             worker = context.service_workers[0] if context.service_workers else await context.wait_for_event('serviceworker')
             extension_id = worker.url.split('/')[2]
-            page = await context.new_page()
+            page = await check_desktop_window(context, worker, output, ok) if inspection_only else await context.new_page()
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.on('dialog', lambda dialog: dialog.accept())
-            await page.goto(f'chrome-extension://{extension_id}/sidepanel.html')
+            if not inspection_only:
+                await page.goto(f'chrome-extension://{extension_id}/sidepanel.html')
             await page.fill('#session-name', 'Release QA')
-            await page.click('#btn-create-session')
+            await page.locator('#session-name').press('Enter')
             await page.wait_for_selector('#app-container', state='visible')
-            target_page = await context.new_page()
+            if inspection_only:
+                await page.locator('#tool-proxy').focus()
+                await page.keyboard.press('ArrowDown')
+                assert await page.locator('#tool-proxy').get_attribute('aria-selected') == 'true'
+                await page.keyboard.press('Enter')
+                assert await page.locator('#tool-requests').get_attribute('aria-selected') == 'true'
+                target_page = next(tab for tab in context.pages if tab is not page and tab.url == 'about:blank')
+            else:
+                target_page = await context.new_page()
             target_page.on('dialog', lambda dialog: dialog.accept())
             await target_page.goto('http://127.0.0.1:19443/html')
             await target_page.goto('https://127.0.0.1:19444/echo')
+            if inspection_only:
+                current = await page.evaluate('chrome.runtime.sendMessage({type: "get_current_url"})')
+                assert current['url'] == target_page.url, current
             await page.click('.tab[data-tab="requests"]')
             await wait(page, 'document.querySelectorAll(".request-item").length >= 2')
             logs = await api('GET', '/api/logs/http')
@@ -256,8 +494,12 @@ async def run(chrome, output, inspection_only=False):
             ok('HTTP and HTTPS capture; API traffic excluded')
             if inspection_only:
                 await check_history_workspace(page, target_page, api, output, ok)
+                await check_extension_views(page, output, ok)
                 await capture_views(page, output)
-                ok('All 10 views at 320/380/768/1440 pixels')
+                await check_expanded_settings(page, output)
+                ok('All 11 views at 320/380/768/1440 pixels')
+                ok('Expanded settings and dialog at 320/380/1440 pixels')
+                await check_workspace_drafts(context, page, output, ok)
                 assert not errors, errors
                 await context.close()
                 return
@@ -456,7 +698,7 @@ async def run(chrome, output, inspection_only=False):
             await page.locator('.rule-row [data-f="name"]').last.fill('QA rule')
             await page.locator('.rule-row [data-f="name"]').last.blur()
             await capture_views(page, output)
-            ok('All 10 views at 320/380/768/1440 pixels')
+            ok('All 11 views at 320/380/768/1440 pixels')
             assert not errors, errors
             ok('No uncaught extension JavaScript errors')
             await context.close()

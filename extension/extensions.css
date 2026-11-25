@@ -1,0 +1,267 @@
+.extension-nav {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.extension-nav button {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 3px 3px 0 0;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.extension-nav button:hover {
+  background: var(--bg-input);
+}
+
+.extension-nav [aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.extension-page {
+  width: 100%;
+  max-width: 1160px;
+  margin-inline: auto;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.extension-page[hidden] {
+  display: none;
+}
+
+.extension-catalog-toolbar {
+  margin-bottom: 12px;
+}
+
+.extension-catalog-filters {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(140px, 210px);
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.extension-catalog-filters .input {
+  min-width: 0;
+  width: 100%;
+}
+
+#extension-catalog-status {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+#extension-catalog-status:empty {
+  display: none;
+}
+
+.extension-catalog-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
+  gap: 10px;
+}
+
+.extension-catalog-card {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+}
+
+.extension-catalog-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.extension-catalog-card p {
+  margin: 6px 0 12px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.extension-catalog-card .extension-catalog-origin {
+  margin-bottom: 0;
+  color: var(--text-muted);
+}
+
+.extension-catalog-card .btn {
+  margin-top: auto;
+  text-decoration: none;
+}
+
+.extension-section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+}
+
+.extension-section > p,
+.extension-report,
+.extension-pack-list {
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.extension-section > p:empty,
+.message-extension-status:empty {
+  display: none;
+}
+
+.extension-form {
+  display: grid;
+  gap: 7px;
+  font-size: 0.8rem;
+}
+
+.extension-form .input {
+  min-width: 0;
+  width: 100%;
+}
+
+.extension-form button {
+  justify-self: start;
+}
+
+.extension-form input[type="file"]::file-selector-button {
+  padding: 3px 7px;
+  margin-right: 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-main);
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.extension-menu-action {
+  width: 100%;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.extension-report {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.extension-report dt {
+  color: var(--text-muted);
+  margin-top: 7px;
+}
+
+.extension-report dd {
+  margin-left: 0;
+}
+
+.extension-pack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding-block: 9px;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.extension-pack-list {
+  margin-top: 12px;
+}
+
+.extension-pack p {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.extension-pack-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-extension-view {
+  padding: 8px;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+.message-extension-view[hidden], .extension-output[hidden] {
+  display: none;
+}
+
+.message-extension-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.message-extension-controls label {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.message-extension-controls select {
+  display: block;
+  margin-top: 4px;
+  max-width: 100%;
+}
+
+.extension-output {
+  width: 100%;
+  max-height: 45vh;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.repeater-column .editor-tabs {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 475px) {
+  .extension-catalog-filters {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 345px) {
+  .extension-nav {
+    gap: 2px;
+    padding-inline: 6px;
+  }
+
+  .extension-nav button {
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+}

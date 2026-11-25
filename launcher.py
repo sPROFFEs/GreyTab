@@ -55,15 +55,17 @@ def browser_command(config):
             f"--ignore-certificate-errors-spki-list={spki}", *config.chromium_flags, "about:blank"]
 
 
-async def main(no_browser=False):
+async def main(no_browser=False, open_workspace=True):
     import uvicorn
     ensure_dirs()
     config = get_config()
     if not no_browser:
         check_installation()
     check_ports(config)
+    from core.api import app
+    app.state.open_workspace_on_launch = not no_browser and open_workspace
     console.print(f"[bold]GreyTab {__version__}[/bold] · Linux · API {config.api.port} · Proxy {config.proxy.port}")
-    server = uvicorn.Server(uvicorn.Config("core.api:app", host=config.api.host, port=config.api.port, log_level="warning"))
+    server = uvicorn.Server(uvicorn.Config(app, host=config.api.host, port=config.api.port, log_level="warning"))
     backend = asyncio.create_task(server.serve())
     browser = None
     try:
@@ -79,7 +81,12 @@ async def main(no_browser=False):
         if not no_browser:
             with (LOGS_DIR / "chromium.log").open("w") as log:
                 browser = subprocess.Popen(browser_command(config), stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
-        console.print("[green]Ready.[/green] Open the GreyTab extension from the browser toolbar. Ctrl+C closes the session.")
+        if no_browser:
+            console.print("[green]Ready.[/green] API and proxy running. Ctrl+C stops both services.")
+        elif open_workspace:
+            console.print("[green]Ready.[/green] GreyTab opens alongside Chromium. Ctrl+C closes both windows.")
+        else:
+            console.print("[green]Ready.[/green] Open GreyTab from the Chromium toolbar. Ctrl+C closes the session.")
         while not backend.done() and (browser is None or browser.poll() is None):
             await asyncio.sleep(.25)
         if browser is not None and browser.returncode:
@@ -104,13 +111,15 @@ def run():
     parser = argparse.ArgumentParser(description="GreyTab web auditing suite (Linux)")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--check", action="store_true", help="Check browser and Python installation")
-    parser.add_argument("--backend-only", action="store_true", help="Start API and proxy without opening Chromium")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--backend-only", action="store_true", help="Start API and proxy without opening Chromium")
+    mode.add_argument("--side-panel", action="store_true", help="Start Chromium without opening the GreyTab workspace")
     args = parser.parse_args()
     try:
         if args.check:
             check_installation()
         else:
-            asyncio.run(main(args.backend_only))
+            asyncio.run(main(args.backend_only, open_workspace=not args.side_panel))
     except KeyboardInterrupt:
         pass
     except (RuntimeError, OSError) as e:
