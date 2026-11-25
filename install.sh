@@ -13,7 +13,19 @@ UV_BIN="$PROJECT_ROOT/.runtime/uv/uv"
 export UV_PYTHON_INSTALL_DIR="$PROJECT_ROOT/.runtime/python"
 export UV_PYTHON_BIN_DIR="$PROJECT_ROOT/.runtime/bin"
 export UV_CACHE_DIR="$PROJECT_ROOT/.runtime/cache"
-PYTHON_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["python"])' "$PROJECT_ROOT/runtime-lock.json")"
+PYTHON_VERSION="$(python3 - "$PROJECT_ROOT" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+# Release archives use fixed timestamps, so an old same-size module can leave valid-looking bytecode.
+for cached in (root / 'core').rglob('*.pyc'):
+    if cached.parent.name == '__pycache__':
+        cached.unlink(missing_ok=True)
+print(json.loads((root / 'runtime-lock.json').read_text())['python'])
+PY
+)"
 "$UV_BIN" python install "$PYTHON_VERSION"
 VENV_DIR="$PROJECT_ROOT/.venv"
 VENV_MODE=--allow-existing

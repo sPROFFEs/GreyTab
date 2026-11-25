@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "GreyTab Panel",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "description": "Integrated GreyTab pentesting panel for web auditing",
     "permissions": [
         "sidePanel",

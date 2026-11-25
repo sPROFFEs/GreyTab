@@ -4,12 +4,12 @@
   <p>A Linux browser workspace for web security testing.</p>
 </div>
 
-GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.5.0** supports **Linux x86_64 and ARM64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18** for the host architecture.
+GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.5.1** supports **Linux x86_64 and ARM64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18** for the host architecture.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | bash
 ```
 
 Launch **GreyTab** from your application menu, or run `~/.local/bin/greytab`. The workspace opens in a separate window alongside Chromium. Create or resume a session there, then choose **Browser** to return to browsing. Use `greytab --side-panel` to open GreyTab from the browser toolbar on demand. `greytab --check` checks the installation and `greytab --version` prints the version.
@@ -87,7 +87,7 @@ The browser suite loads the actual extension in the pinned Chromium and exercise
 - [Testing and release checks](docs/TESTING.md)
 - [Scanner lab regression](regression/README.md)
 - [Release procedure](docs/RELEASE.md)
-- [0.5.0 QA results and limitations](docs/QA-0.5.0.md)
+- [0.5.1 QA results and limitations](docs/QA-0.5.1.md)
 - [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 GreyTab covers several everyday Burp-style workflows. It does not claim Burp Suite feature parity or equivalent scanner accuracy; see the documented limits and test evidence.

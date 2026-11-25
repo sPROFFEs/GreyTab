@@ -1,17 +1,17 @@
 # Installing GreyTab on Linux
 
-Release 0.5.0 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
+Release 0.5.1 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
 
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | bash
 ```
 
 The versioned bootstrap installs the latest published release by default. To reproduce this release exactly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | GREYTAB_VERSION=v0.5.0 bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | GREYTAB_VERSION=v0.5.1 bash
 ```
 
 The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It selects the release archive and checksum using `uname -m`. `install.sh` then verifies and installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from the matching target in `runtime-lock.json`. It installs Python 3.13.18 and the dependencies in `requirements.lock` for the same architecture.
@@ -33,7 +33,7 @@ The installer does not require sudo. A minimal Linux installation may need syste
 ## Inspect before installing
 
 ```bash
-curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh
+curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh
 less /tmp/greytab-install.sh
 bash /tmp/greytab-install.sh
 ```
@@ -42,7 +42,7 @@ To choose another destination, prefix `bash` with `GREYTAB_INSTALL_DIR="/path/to
 
 ## Manual installation
 
-Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.5.0).
+Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.5.1).
 
 | Linux architecture | Archive | Checksum command |
 | --- | --- | --- |

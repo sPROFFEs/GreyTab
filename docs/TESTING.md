@@ -40,7 +40,7 @@ This run opens the desktop workspace automatically in a clean Chromium profile. 
 
 ## Installation validation
 
-Build with `python3 scripts/build_release.py --output /tmp/greytab-dist` and verify `SHA256SUMS` and `SHA256SUMS.aarch64`. Extract the archive for the current architecture into a disposable directory with spaces in its name. Run `.venv/bin/python tests/install_smoke.py "/tmp/GreyTab Install" --output /tmp/greytab-install-qa` with ports 8080 and 8443 available. The script installs the package with isolated command and desktop paths and verifies versions, backend shutdown and session persistence after a reinstall.
+Build with `python3 scripts/build_release.py --output /tmp/greytab-dist` and verify `SHA256SUMS` and `SHA256SUMS.aarch64`. Extract the archive for the current architecture into a disposable directory with spaces in its name. Run `.venv/bin/python tests/install_smoke.py "/tmp/GreyTab Install" --output /tmp/greytab-install-qa` with ports 8080 and 8443 available. The script installs the package with isolated command and desktop paths. It checks versions, backend shutdown, persistence of a saved session and invalidation of stale bytecode after reinstalling.
 
 GitHub CI uses native Ubuntu 24.04 runners for x86_64 and aarch64. Both run Python, Node, syntax, package installation and browser checks. On release publication they install from the versioned public bootstrap. Each job uploads its own install and browser evidence and release archives.
 

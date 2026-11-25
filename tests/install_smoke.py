@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import signal
 import subprocess
+from tempfile import TemporaryDirectory
 import time
 from urllib.error import URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -53,6 +54,29 @@ def running_backend(wrapper, env, log_path, version):
         assert status == 0, f"Installed backend exited with {status}. See {log_path}"
 
 
+def seed_stale_version_cache(app, version):
+    source = app / "core/__init__.py"
+    previous_version = ".".join("0" * len(part) for part in version.split("."))
+    contents = source.read_bytes()
+    previous = contents.replace(f'__version__ = "{version}"'.encode(),
+                                f'__version__ = "{previous_version}"'.encode(), 1)
+    assert previous != contents and len(previous) == len(contents)
+    with TemporaryDirectory() as scratch:
+        old_source = Path(scratch) / "previous_version.py"
+        old_source.write_bytes(previous)
+        stat = source.stat()
+        os.utime(old_source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        subprocess.run([app / ".venv/bin/python", "-c", """
+from importlib.util import cache_from_source
+import py_compile
+import sys
+
+py_compile.compile(sys.argv[1], cfile=cache_from_source(sys.argv[2]), doraise=True,
+                   invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+""", old_source, source], check=True)
+    return previous_version
+
+
 def verify_install(app, output):
     output.mkdir(parents=True, exist_ok=True)
     bin_dir = app.parent / "command bin"
@@ -77,10 +101,13 @@ def verify_install(app, output):
     with running_backend(wrapper, env, output / "backend-first.log", version):
         session_id = api("/api/sessions", {"name": "Packaged install QA"})["id"]
 
+    previous_version = seed_stale_version_cache(app, version)
+    assert subprocess.check_output([wrapper, "--version"], env=env, text=True).strip() == previous_version
     subprocess.run(["bash", app / "install.sh"], cwd=output, env=env, check=True)
+    assert subprocess.check_output([wrapper, "--version"], env=env, text=True).strip() == version
     with running_backend(wrapper, env, output / "backend-reinstall.log", version):
         assert api(f"/api/sessions/{session_id}")["name"] == "Packaged install QA"
-    print(f"PASS GreyTab {version} clean install, backend lifecycle and reinstall with a saved session")
+    print(f"PASS GreyTab {version} install, backend lifecycle, session preservation and stale bytecode removal")
 
 
 if __name__ == "__main__":

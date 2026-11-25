@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1 — 2026-11-25
+
+- Invalidate cached Python bytecode during installation so in-place upgrades load the new application version and code.
+- Exercise the stale-cache upgrade case on both native Linux runners while checking that saved sessions survive.
+
 ## 0.5.0 — 2026-11-25
 
 - Support Linux ARM64 (aarch64) alongside x86_64. The one-line installer selects and verifies the matching archive, Chromium and uv.
