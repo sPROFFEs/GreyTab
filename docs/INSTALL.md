@@ -1,20 +1,20 @@
 # Installing GreyTab on Linux
 
-Release 0.4.0 supports Linux x86_64 with glibc 2.28 or newer and a graphical desktop.
+Release 0.5.0 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
 
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.4.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | bash
 ```
 
 The versioned bootstrap installs the latest published release by default. To reproduce this release exactly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.4.0/quickstart.sh | GREYTAB_VERSION=v0.4.0 bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | GREYTAB_VERSION=v0.5.0 bash
 ```
 
-The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It downloads a release archive and checks `SHA256SUMS`. `install.sh` then installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from URLs and SHA-256 values in `runtime-lock.json`, Python 3.13.18, and every package in `requirements.lock`.
+The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It selects the release archive and checksum using `uname -m`. `install.sh` then verifies and installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from the matching target in `runtime-lock.json`. It installs Python 3.13.18 and the dependencies in `requirements.lock` for the same architecture.
 
 Default paths:
 
@@ -33,7 +33,7 @@ The installer does not require sudo. A minimal Linux installation may need syste
 ## Inspect before installing
 
 ```bash
-curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.4.0/quickstart.sh
+curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh
 less /tmp/greytab-install.sh
 bash /tmp/greytab-install.sh
 ```
@@ -42,7 +42,14 @@ To choose another destination, prefix `bash` with `GREYTAB_INSTALL_DIR="/path/to
 
 ## Manual installation
 
-Download `greytab-linux-x86_64.tar.gz` and `SHA256SUMS` from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.4.0), check them with `sha256sum -c SHA256SUMS`, extract into a dedicated directory and run `bash /path/to/GreyTab/install.sh`. The installer resolves its own location, so the caller's working directory does not matter. It installs the same pinned browser and Python as the one-liner.
+Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.5.0).
+
+| Linux architecture | Archive | Checksum command |
+| --- | --- | --- |
+| x86_64 | `greytab-linux-x86_64.tar.gz` | `sha256sum -c SHA256SUMS` |
+| ARM64 (`aarch64`) | `greytab-linux-aarch64.tar.gz` | `sha256sum -c SHA256SUMS.aarch64` |
+
+Extract the verified archive into a dedicated directory and run `bash /path/to/GreyTab/install.sh`. The installer resolves its own location and installs the same pinned runtime as the one-liner.
 
 Developers can clone the repository and run `bash install.sh`. Custom Chromium builds can be selected at launch with `GREYTAB_CHROME_BIN=/absolute/path/to/chrome`; the release's validation covers the pinned build.
 
@@ -52,7 +59,7 @@ The [Extensions view](EXTENSIONS.md) uses the same Linux installer. The archive 
 
 ## Update and recovery
 
-Close GreyTab, back up `data/`, `logs/`, `profile/` and any `.pbx` projects, then run the one-liner again. Application files and locked runtime packages are refreshed; the profile, database and configuration remain in place. Browser downloads are skipped when the installed version marker matches. A failed download or checksum check stops installation before replacing the browser.
+Close GreyTab, back up `data/`, `logs/`, `profile/` and any `.pbx` projects, then run the one-liner again. Application files and locked runtime packages are refreshed in place. The installer reuses a browser or uv binary when both its version and architecture match. For a move to a different architecture, install GreyTab on the destination and import exported `.pbx` projects.
 
 For an existing source checkout, update the checkout and run `bash install.sh`. An installation from an older `/usr/local/bin/greytab` wrapper may still take precedence in PATH: inspect `command -v greytab` and use `~/.local/bin/greytab` or update your PATH.
 

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-[[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || { echo 'GreyTab supports Linux x86_64 only.' >&2; exit 1; }
+[[ "$(uname -s)" == Linux ]] || { echo 'GreyTab supports Linux x86_64 and ARM64 only.' >&2; exit 1; }
+case "$(uname -m)" in
+    x86_64) ARCHITECTURE=x86_64 ;;
+    aarch64|arm64) ARCHITECTURE=aarch64 ;;
+    *) echo 'GreyTab supports Linux x86_64 and ARM64 only.' >&2; exit 1 ;;
+esac
 command -v python3 >/dev/null || { echo 'Install python3, curl and tar with your package manager first.' >&2; exit 1; }
 python3 "$PROJECT_ROOT/scripts/install_runtime.py"
 UV_BIN="$PROJECT_ROOT/.runtime/uv/uv"
@@ -10,9 +15,16 @@ export UV_PYTHON_BIN_DIR="$PROJECT_ROOT/.runtime/bin"
 export UV_CACHE_DIR="$PROJECT_ROOT/.runtime/cache"
 PYTHON_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["python"])' "$PROJECT_ROOT/runtime-lock.json")"
 "$UV_BIN" python install "$PYTHON_VERSION"
-"$UV_BIN" venv --python "$PYTHON_VERSION" --managed-python --allow-existing "$PROJECT_ROOT/.venv"
-"$UV_BIN" pip sync --python "$PROJECT_ROOT/.venv/bin/python" "$PROJECT_ROOT/requirements.lock"
-"$PROJECT_ROOT/.venv/bin/python" "$PROJECT_ROOT/launcher.py" --check
+VENV_DIR="$PROJECT_ROOT/.venv"
+VENV_MODE=--allow-existing
+if [[ -f "$VENV_DIR/pyvenv.cfg" ]] && ! "$VENV_DIR/bin/python" -c \
+    'import platform, sys; sys.exit(platform.machine().replace("arm64", "aarch64") != sys.argv[1] or platform.python_version() != sys.argv[2])' \
+    "$ARCHITECTURE" "$PYTHON_VERSION" >/dev/null 2>&1; then
+    VENV_MODE=--clear
+fi
+"$UV_BIN" venv --python "$PYTHON_VERSION" --managed-python "$VENV_MODE" "$VENV_DIR"
+"$UV_BIN" pip sync --python "$VENV_DIR/bin/python" "$PROJECT_ROOT/requirements.lock"
+"$VENV_DIR/bin/python" "$PROJECT_ROOT/launcher.py" --check
 BIN_DIR="${GREYTAB_BIN_DIR:-$HOME/.local/bin}"
 DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"

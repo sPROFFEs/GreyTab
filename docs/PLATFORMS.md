@@ -1,6 +1,6 @@
 # Android and Burp extensions
 
-Linux x86_64 remains the supported platform.
+GreyTab supports Linux x86_64 and ARM64 (`aarch64`). Both use native builds of pinned Chromium and uv and are validated on native CI runners. ARM64 support here applies to desktop Linux.
 
 ## Android APK
 

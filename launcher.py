@@ -5,6 +5,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import platform
 import signal
 import socket
 import subprocess
@@ -20,8 +21,8 @@ console = Console()
 
 
 def check_installation():
-    if sys.platform != "linux":
-        raise RuntimeError("GreyTab currently supports Linux only")
+    if sys.platform != "linux" or platform.machine() not in {"x86_64", "aarch64", "arm64"}:
+        raise RuntimeError("GreyTab supports Linux x86_64 and ARM64 only")
     if not CHROMIUM_BIN.is_file() or not os.access(CHROMIUM_BIN, os.X_OK):
         raise RuntimeError(f"Chromium not found: {CHROMIUM_BIN}. Run ./install.sh")
     if not (EXTENSION_DIR / "manifest.json").is_file():

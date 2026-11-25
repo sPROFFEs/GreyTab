@@ -4,6 +4,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
@@ -36,7 +37,11 @@ def build(output):
                     info.mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
                     with source.open('rb') as content: tar.addfile(info, content)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    (output / 'SHA256SUMS').write_text(f'{digest}  {archive.name}\n')
+    arm_archive = output / 'greytab-linux-aarch64.tar.gz'
+    # The archives contain the same source. Each installer verifies its own asset.
+    shutil.copyfile(archive, arm_archive)
+    for asset, checksums in ((archive, 'SHA256SUMS'), (arm_archive, 'SHA256SUMS.aarch64')):
+        (output / checksums).write_text(f'{digest}  {asset.name}\n')
     print(f'GreyTab {__version__}: {archive} ({archive.stat().st_size} bytes)')
 
 

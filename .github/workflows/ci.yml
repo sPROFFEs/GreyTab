@@ -4,11 +4,22 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 permissions:
   contents: read
 jobs:
   validate:
-    runs-on: ubuntu-24.04
+    name: Linux (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86_64
+            runner: ubuntu-24.04
+          - architecture: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
@@ -26,24 +37,44 @@ jobs:
           .venv/bin/ruff check core launcher.py scripts tests --select F821,F822,F823,E9
           bash -n install.sh
           bash -n quickstart.sh
-      - name: Install pinned Chromium and Linux libraries
-        run: |
-          .venv/bin/playwright install-deps chromium
-          python scripts/install_runtime.py
-      - name: Real extension workflows and screenshots
-        run: .venv/bin/python tests/browser_smoke.py --output tests/_runtime/browser
-      - name: History workspace and inspection regressions
-        run: .venv/bin/python tests/browser_smoke.py --inspection-only --output tests/_runtime/history
-      - name: Build and verify release archive
+      - name: Build and verify release archives
         run: |
           python scripts/build_release.py
           cd dist
           sha256sum -c SHA256SUMS
+          sha256sum -c SHA256SUMS.aarch64
+      - name: Verify clean package install and reinstall
+        env:
+          GREYTAB_TEST_ARCH: ${{ matrix.architecture }}
+          GREYTAB_RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -o pipefail
+          test "$(uname -m)" = "$GREYTAB_TEST_ARCH"
+          .venv/bin/playwright install-deps chromium
+          package_root=$(mktemp -d "$RUNNER_TEMP/greytab-package.XXXXXX")
+          app_dir="$package_root/GreyTab Install"
+          mkdir -p "$app_dir"
+          if [[ -n "$GREYTAB_RELEASE_TAG" ]]; then
+            [[ "$GREYTAB_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            curl -fsSL --retry 3 "https://raw.githubusercontent.com/sPROFFEs/GreyTab/$GREYTAB_RELEASE_TAG/quickstart.sh" |
+              GREYTAB_VERSION="$GREYTAB_RELEASE_TAG" GREYTAB_INSTALL_DIR="$app_dir" \
+              GREYTAB_BIN_DIR="$package_root/command bin" XDG_DATA_HOME="$package_root/desktop files" bash
+            test "$("$package_root/command bin/greytab" --version)" = "${GREYTAB_RELEASE_TAG#v}"
+          else
+            tar -xzf "dist/greytab-linux-$GREYTAB_TEST_ARCH.tar.gz" -C "$app_dir"
+          fi
+          .venv/bin/python tests/install_smoke.py "$app_dir" --output tests/_runtime/install
+          echo "GREYTAB_TEST_APP=$app_dir" >> "$GITHUB_ENV"
+      - name: Real extension workflows and screenshots
+        run: .venv/bin/python "$GREYTAB_TEST_APP/tests/browser_smoke.py" --output tests/_runtime/browser
+      - name: History workspace and inspection regressions
+        run: .venv/bin/python "$GREYTAB_TEST_APP/tests/browser_smoke.py" --inspection-only --output tests/_runtime/history
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
-          name: linux-qa
+          name: linux-qa-${{ matrix.architecture }}
           path: |
             tests/_runtime/browser/
             tests/_runtime/history/
+            tests/_runtime/install/
             dist/

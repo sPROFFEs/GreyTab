@@ -51,4 +51,4 @@ SQLite is `logs/pentestbrowser.db` and contains sessions, HTTP logs, frame logs,
 
 ## Distribution
 
-`runtime-lock.json` pins the browser archive, uv archive, their SHA-256 values and Python patch version. `requirements.lock` pins the validated Linux Python environment. `scripts/build_release.py` packages source, tests and documentation from Git's non-ignored files. It excludes runtime directories even if staged, normalizes archive ownership/timestamps and writes `SHA256SUMS`. The release does not bundle browser binaries; installation downloads the pinned, verified archive.
+`runtime-lock.json` pins Chromium and uv downloads and their SHA-256 values for x86_64 and aarch64, plus the Python patch version shared by both. The installer checks each executable's ELF architecture before replacing or reusing it. `requirements.lock` pins the Python dependencies selected for the native environment. `scripts/build_release.py` packages the same source for both architectures, excludes private runtime directories even if staged and normalizes archive metadata. Each release asset has a single-file checksum so an installer can verify just the archive it downloaded.

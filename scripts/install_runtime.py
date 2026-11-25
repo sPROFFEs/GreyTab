@@ -12,11 +12,25 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+ELF_MACHINES = {"x86_64": 62, "aarch64": 183}
 
 
-def download_component(spec, destination, executable):
+def matches_architecture(path, architecture):
+    if not path.is_file():
+        return False
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(20)
+    except OSError:
+        return False
+    return (len(header) == 20 and header.startswith(b"\x7fELF\x02\x01") and
+            int.from_bytes(header[18:20], "little") == ELF_MACHINES[architecture])
+
+
+def download_component(spec, destination, executable, architecture):
     marker = destination / ".greytab-version"
-    if marker.exists() and marker.read_text().strip() == spec["version"] and (destination / executable).is_file():
+    if (marker.is_file() and marker.read_text().strip() == spec["version"] and
+            matches_architecture(destination / executable, architecture)):
         print("Already installed:", destination.name, spec["version"])
         return
     with tempfile.TemporaryDirectory(prefix="greytab-download-", dir=ROOT) as temp:
@@ -51,6 +65,8 @@ def download_component(spec, destination, executable):
         binary = next(extracted.rglob(executable), None)
         if not binary:
             raise RuntimeError("Executable missing from downloaded archive")
+        if not matches_architecture(binary, architecture):
+            raise RuntimeError(f"Unexpected executable architecture for {destination.name}. Expected {architecture}.")
         replacement = binary.parent
         (replacement / ".greytab-version").write_text(spec["version"])
         backup = destination.with_name(destination.name + ".previous")
@@ -70,10 +86,14 @@ def download_component(spec, destination, executable):
 
 def main():
     lock = json.loads((ROOT / "runtime-lock.json").read_text())
-    if platform.system() != "Linux" or platform.machine() != "x86_64":
-        raise SystemExit("This release supports Linux x86_64 only.")
-    download_component(lock["uv"], ROOT / ".runtime" / "uv", "uv")
-    download_component(lock["chromium"], ROOT / "browser", "chrome")
+    architecture = platform.machine()
+    if architecture == "arm64":
+        architecture = "aarch64"
+    if platform.system().lower() != lock["platform"] or architecture not in lock["targets"]:
+        raise SystemExit("GreyTab supports Linux x86_64 and ARM64 only.")
+    target = lock["targets"][architecture]
+    download_component(target["uv"], ROOT / ".runtime" / "uv", "uv", architecture)
+    download_component(target["chromium"], ROOT / "browser", "chrome", architecture)
     result = subprocess.run([str(ROOT / "browser" / "chrome"), "--version"], capture_output=True, text=True)
     if result.returncode:
         raise SystemExit("Chromium is missing system libraries:\n" + result.stderr + "\nSee docs/INSTALL.md for distribution packages.")

@@ -1,6 +1,6 @@
 # GreyTab repository instructions
 
-- Support Linux x86_64 only until another platform is implemented and validated.
+- Support Linux x86_64 and ARM64 (aarch64). Validate each release on native runners for both architectures.
 - Preserve HTTP method, target scheme/port, Host overrides and body separators across interception, replay and captured-request scans.
 - Dispatch mitmproxy flow mutations on its event loop. Keep backend settings/events consistent after a mutation completes.
 - Keep captured traffic out of `innerHTML` unless escaped. Keep response preview sandboxing and local-API origin restrictions intact.

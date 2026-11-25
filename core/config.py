@@ -60,8 +60,7 @@ def resolve_chromium_bin() -> Path:
     if system_bin:
         return Path(system_bin).resolve()
 
-    # Fallback to historical in-repo path for compatibility.
-    return (PROJECT_ROOT / "ungoogled-chromium-145.0.7632.75-1-x86_64_linux" / "chrome").resolve()
+    return (PROJECT_ROOT / "browser" / "chrome").resolve()
 
 
 CHROMIUM_BIN = resolve_chromium_bin()

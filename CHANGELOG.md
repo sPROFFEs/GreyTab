@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0 — 2026-11-25
+
+- Support Linux ARM64 (aarch64) alongside x86_64. The one-line installer selects and verifies the matching archive, Chromium and uv.
+- Validate fresh installs, session preservation after reinstall and full Chromium workflows on native x86_64 and ARM64 Linux runners.
+
 ## 0.4.0 — 2026-11-25
 
 - Open the GreyTab desktop workspace automatically alongside Chromium. Use **Browser** to return to the active browser window, or `greytab --side-panel` to launch Chromium and open the toolbar panel on demand.

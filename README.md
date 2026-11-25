@@ -4,17 +4,17 @@
   <p>A Linux browser workspace for web security testing.</p>
 </div>
 
-GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.4.0** supports **Linux x86_64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18**.
+GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.5.0** supports **Linux x86_64 and ARM64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18** for the host architecture.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.4.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.0/quickstart.sh | bash
 ```
 
 Launch **GreyTab** from your application menu, or run `~/.local/bin/greytab`. The workspace opens in a separate window alongside Chromium. Create or resume a session there, then choose **Browser** to return to browsing. Use `greytab --side-panel` to open GreyTab from the browser toolbar on demand. `greytab --check` checks the installation and `greytab --version` prints the version.
 
-The installer downloads the published release and verifies its SHA-256, installs a verified portable Chromium and uv, downloads the pinned Python runtime, and installs locked Python dependencies. Everything lives under `~/.local/share/greytab`, with a command in `~/.local/bin`; no system-wide Python installation is needed. Prerequisites: a graphical Linux session, x86_64, glibc 2.28+, Python 3.9+ for bootstrapping, `curl`, `tar`, `sha256sum`, and Chromium's system libraries. See [installation and updates](docs/INSTALL.md) for distribution packages, custom paths, manual installation and troubleshooting.
+The installer selects the matching release archive and verifies its SHA-256. It installs portable Chromium, uv, the pinned Python runtime and locked dependencies under `~/.local/share/greytab`, with a command in `~/.local/bin`. You need a graphical Linux session, glibc and Chromium's system libraries, Python 3.9+ for bootstrapping, `curl`, `tar` and `sha256sum`. See [installation and updates](docs/INSTALL.md) for supported architectures, distribution packages and troubleshooting.
 
 ## Workspace
 
@@ -87,7 +87,7 @@ The browser suite loads the actual extension in the pinned Chromium and exercise
 - [Testing and release checks](docs/TESTING.md)
 - [Scanner lab regression](regression/README.md)
 - [Release procedure](docs/RELEASE.md)
-- [0.4.0 QA results and limitations](docs/QA-0.4.0.md)
+- [0.5.0 QA results and limitations](docs/QA-0.5.0.md)
 - [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 GreyTab covers several everyday Burp-style workflows. It does not claim Burp Suite feature parity or equivalent scanner accuracy; see the documented limits and test evidence.

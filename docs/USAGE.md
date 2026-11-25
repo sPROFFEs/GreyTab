@@ -92,7 +92,7 @@ AI is optional and disabled by default. Configure provider, endpoint, model and 
 
 ## Limits
 
-- Linux x86_64 only; the pinned Chromium was validated locally and through CI, not on every Linux distribution.
+- Linux x86_64 and ARM64 (`aarch64`). The pinned browser is validated on native Ubuntu 24.04 runners for both architectures.
 - History renders up to 200 requests per page. Literal URL and note search and the structured filters cover the session. Regex applies to the current page. Site Map summarizes the 20,000 most recent requests. REST log export can retrieve up to 50,000 entries with `offset` pagination.
 - Captured textual request/response bodies and Repeater previews are limited to 1 MiB. Binary data is not an exact editable/replayable message format. The sandboxed preview is static.
 - `.pbx` saves up to 50,000 HTTP requests and 5,000 WebSocket frames/tool runs. The UI HAR export defaults to 5,000; the API supports a `limit` up to 50,000. These exports are bounded snapshots rather than unlimited backups of SQLite.
