@@ -49,15 +49,15 @@ Authenticated mode reads browser cookies for the target. A saved Login Macro can
 
 Detectors use heuristics and confirmation probes. Review evidence and validate findings; passing software tests is not a measurement of real-world detection coverage. See [lab regression](../regression/README.md).
 
-## Utilities
+## Webhook.site inbox
 
-### Webhook.site inbox
-
-Open **Utilities → Webhook.site inbox**. Choose **Open Webhook.site** to get a free URL. Paste the inbox URL, the URL from the browser address bar, or the UUID into GreyTab. Select **Refresh inbox** and choose a delivery to see its method, URL, receipt time, headers and text body preview. GreyTab shows up to 20 recent HTTP deliveries and 4,096 characters per body.
+Open the **Webhook** tab next to **Decoder**. You can also use **Open Webhook.site inbox** in **Utilities**. Choose **Open Webhook.site** to get a free URL. Paste the inbox URL, the URL from the browser address bar, or the UUID into GreyTab. Select **Refresh inbox** and choose a delivery to see its method, URL, receipt time, headers and text body preview. GreyTab shows up to 20 recent HTTP deliveries and 4,096 characters per body.
 
 Use **Save inbox** with an optional name to keep up to 20 IDs in the current Chromium profile. **Saved inboxes** switches between those IDs. **Forget** removes the selected ID from your local list. **Clear** empties the form and previews. Adding IDs is manual because the provider's account list requires authentication. Anyone with a free inbox's ID can view its deliveries. See the [Webhook.site FAQ](https://docs.webhook.site/#is-my-data-private) and [token list API](https://docs.webhook.site/api/tokens.html#get-token-list).
 
 **View default response** reads the selected URL's configured status, content type and up to 4,096 characters of its body. **Open in Webhook.site** opens that inbox in the provider's web interface, where **Edit** changes the default response. Refresh the preview in GreyTab after saving there. See the [Webhook.site FAQ](https://docs.webhook.site/faq.html#what-does-this-url-has-no-default-content-configured-mean).
+
+## Utilities
 
 Race Tester takes the selected History request or a Repeater tab and sends 2–100 requests concurrently, displaying status/length distributions and durations. This is parallel replay, without packet-level or last-byte synchronization.
 

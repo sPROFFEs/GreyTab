@@ -1242,6 +1242,31 @@ async def health():
     }
 
 
+@app.get("/api/updates")
+async def update_status():
+    manager = getattr(app.state, "updater", None)
+    return manager.snapshot() if manager else {"enabled": False, "installed": APP_VERSION, "phase": "unavailable"}
+
+
+@app.post("/api/updates/check")
+async def check_updates():
+    manager = getattr(app.state, "updater", None)
+    if manager is None:
+        raise HTTPException(status_code=409, detail="Updates require an installed GreyTab release.")
+    return await manager.check()
+
+
+@app.post("/api/updates/prepare")
+async def prepare_update():
+    manager = getattr(app.state, "updater", None)
+    if manager is None:
+        raise HTTPException(status_code=409, detail="Updates require an installed GreyTab release.")
+    try:
+        return manager.prepare()
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @app.post('/api/extensions/inspect')
 async def inspect_extension_archive(request: Request):
     archive = bytearray()

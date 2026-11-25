@@ -27,7 +27,7 @@ The suite starts local HTTP and HTTPS fixtures, a real FastAPI/mitmproxy backend
 
 Ports 8080, 8443 and 19443–19445 must be free. Use `--chromium /absolute/path/to/chrome` to select an existing copy. Playwright's headless test runner may disable sandboxing in CI containers; the production launcher keeps Chromium's sandbox enabled.
 
-Artifacts include screenshots of eleven views at 320, 380, 768 and 1440 pixels, backend logs, HAR, a `.pbx` project, an HTML findings report and `qa.json`. Check the JSON and inspect screenshots; successful DOM assertions alone do not establish visual quality. Screenshot datasets contain fixture credentials/tokens only.
+Artifacts include screenshots of twelve views at 320, 380, 768 and 1440 pixels, backend logs, HAR, a `.pbx` project, an HTML findings report and `qa.json`. Check the JSON and inspect screenshots. Screenshot datasets contain fixture credentials and IDs only.
 
 For focused desktop startup, History, inspector, Repeater editor and responsive layout coverage, run:
 
@@ -36,13 +36,15 @@ For focused desktop startup, History, inspector, Repeater editor and responsive 
 .venv/bin/python tests/browser_smoke.py --inspection-only --output /tmp/greytab-history-qa
 ```
 
-This run opens the desktop workspace automatically in a clean Chromium profile. It checks window reuse, browser focus, keyboard navigation and separate drafts. It captures all eleven views at four widths plus the populated inspector, expanded settings and a dialog. It also checks pane resizing, History pagination, complete HAR export, a static BApp report, catalog search and filters, pack installation and removal, and copying a recorded exchange from History to the clipboard.
+This run opens the desktop workspace automatically in a clean Chromium profile. It checks window reuse, browser focus, keyboard navigation and separate drafts. It captures all twelve views at four widths plus the populated inspector, expanded settings and a dialog. It also checks pane resizing, History pagination, complete HAR export, a static BApp report, catalog search and filters, pack installation and removal, and copying a recorded exchange from History to the clipboard.
 
-The Webhook.site inbox is tested with a mock provider connected to the local API. The browser run checks the free flow without authentication, saved IDs across reloads, switching and forgetting inboxes, and plain-text previews of deliveries and configured responses. The install smoke test verifies the terminal-free desktop entry and the launcher log.
+The Webhook.site inbox is tested with a mock provider connected to the local API. The browser run checks the Webhook tab at 320 pixels, the Utilities shortcut, saved IDs across reloads, switching and forgetting inboxes, and plain-text previews of deliveries and configured responses. The install smoke test verifies the terminal-free desktop entry and the launcher log.
+
+The updater tests cover version comparison, GitHub rate-limit fallback, checksum and archive validation, staging, and restoration after an install failure. The Chromium inspection run uses a local GitHub fixture and verifies the update controls at 320, 380 and 1440 pixels.
 
 ## Installation validation
 
-Build with `python3 scripts/build_release.py --output /tmp/greytab-dist` and verify `SHA256SUMS` and `SHA256SUMS.aarch64`. Extract the archive for the current architecture into a disposable directory with spaces in its name. Run `.venv/bin/python tests/install_smoke.py "/tmp/GreyTab Install" --output /tmp/greytab-install-qa` with ports 8080 and 8443 available. The script installs the package with isolated command and desktop paths. It checks versions, backend shutdown, persistence of a saved session and invalidation of stale bytecode after reinstalling.
+Build with `python3 scripts/build_release.py --output /tmp/greytab-dist` and verify `SHA256SUMS` and `SHA256SUMS.aarch64`. Extract the archive for the current architecture into a disposable directory with spaces in its name. Run `.venv/bin/python tests/install_smoke.py "/tmp/GreyTab Install" --output /tmp/greytab-install-qa --archive "/tmp/greytab-dist/greytab-linux-$(uname -m).tar.gz"` with ports 8080 and 8443 available. The script installs the package with isolated command and desktop paths. It checks versions, backend shutdown, persistence of a saved session and invalidation of stale bytecode after reinstalling. With `--archive`, it also applies that verified archive through the installed updater and checks the saved profile and session.
 
 GitHub CI uses native Ubuntu 24.04 runners for x86_64 and aarch64. Both run Python, Node, syntax, package installation and browser checks. On release publication they install from the versioned public bootstrap. Each job uploads its own install and browser evidence and release archives.
 

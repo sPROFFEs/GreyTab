@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 — 2026-11-25
+
+- Open the Webhook.site inbox from its own **Webhook** tab in the desktop workspace and toolbar panel. Utilities links to the new tab.
+- Check for stable GitHub releases in Settings, fall back to the public HTTPS release page and stage an architecture-matched update for the next launch.
+- Show the installed GreyTab version in the installer output and pin both bootstrap downloads to the same release tag.
+
 ## 0.6.0 — 2026-11-25
 
 - Start from the Linux application menu without a terminal window and write launcher output to `logs/launcher.log`.

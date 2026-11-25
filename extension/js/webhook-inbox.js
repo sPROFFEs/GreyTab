@@ -5,6 +5,7 @@ const webhookInboxSaved = $('#webhook-inbox-saved');
 const webhookInboxForget = $('#webhook-inbox-forget');
 const webhookInboxOpen = $('#webhook-inbox-open');
 const webhookInboxStatus = $('#webhook-inbox-status');
+const webhookInboxManagementStatus = $('#webhook-inbox-management-status');
 const webhookInboxResponseStatus = $('#webhook-inbox-response-status');
 const webhookInboxEvents = $('#webhook-inbox-events');
 const webhookInboxDetail = $('#webhook-inbox-detail');
@@ -52,7 +53,8 @@ function changeWebhookInbox() {
         preview.textContent = '';
         preview.hidden = true;
     }
-    webhookInboxStatus.textContent = '';
+    webhookInboxStatus.textContent = 'Refresh an inbox to see its deliveries.';
+    webhookInboxManagementStatus.textContent = '';
     webhookInboxResponseStatus.textContent = '';
     syncWebhookInboxSelection();
 }
@@ -96,7 +98,7 @@ function showWebhookResponse(response) {
 async function setWebhookInboxSaved(keep) {
     const id = currentWebhookId();
     if (!id) {
-        webhookInboxStatus.textContent = 'Enter a Webhook.site inbox URL or UUID.';
+        webhookInboxManagementStatus.textContent = 'Enter a Webhook.site inbox URL or UUID.';
         return;
     }
     const name = webhookInboxName.value.trim();
@@ -114,9 +116,9 @@ async function setWebhookInboxSaved(keep) {
             await chrome.storage.local.set({[WEBHOOK_INBOX_STORAGE]: inboxes});
             return keep ? 'Inbox saved on this browser profile.' : 'Inbox removed from the saved list.';
         });
-        if (revision === webhookInboxRevision) webhookInboxStatus.textContent = message;
+        if (revision === webhookInboxRevision) webhookInboxManagementStatus.textContent = message;
     } catch {
-        if (revision === webhookInboxRevision) webhookInboxStatus.textContent = 'Could not update saved inboxes.';
+        if (revision === webhookInboxRevision) webhookInboxManagementStatus.textContent = 'Could not update saved inboxes.';
     }
 }
 
@@ -128,7 +130,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.storage.local.get(WEBHOOK_INBOX_STORAGE).then(data => {
     renderWebhookInboxList(data[WEBHOOK_INBOX_STORAGE]);
 }).catch(() => {
-    if (!webhookInboxRevision) webhookInboxStatus.textContent = 'Could not load saved inboxes.';
+    if (!webhookInboxRevision) webhookInboxManagementStatus.textContent = 'Could not load saved inboxes.';
+});
+
+$('#open-webhook-tab').addEventListener('click', () => {
+    const tab = $('#tool-webhook');
+    tab.click();
+    tab.focus();
 });
 
 webhookInboxSaved.addEventListener('change', () => {

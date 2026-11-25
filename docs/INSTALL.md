@@ -1,17 +1,17 @@
 # Installing GreyTab on Linux
 
-Release 0.6.0 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
+Release 0.7.0 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
 
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.7.0/quickstart.sh | bash
 ```
 
 The versioned bootstrap installs the latest published release by default. To reproduce this release exactly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh | GREYTAB_VERSION=v0.6.0 bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.7.0/quickstart.sh | GREYTAB_VERSION=v0.7.0 bash
 ```
 
 The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It selects the release archive and checksum using `uname -m`. `install.sh` then verifies and installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from the matching target in `runtime-lock.json`. It installs Python 3.13.18 and the dependencies in `requirements.lock` for the same architecture.
@@ -33,7 +33,7 @@ The installer does not require sudo. A minimal Linux installation may need syste
 ## Inspect before installing
 
 ```bash
-curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh
+curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.7.0/quickstart.sh
 less /tmp/greytab-install.sh
 bash /tmp/greytab-install.sh
 ```
@@ -42,7 +42,7 @@ To choose another destination, prefix `bash` with `GREYTAB_INSTALL_DIR="/path/to
 
 ## Manual installation
 
-Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.6.0).
+Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.7.0).
 
 | Linux architecture | Archive | Checksum command |
 | --- | --- | --- |
@@ -61,7 +61,13 @@ The [Extensions view](EXTENSIONS.md) uses the same Linux installer. The archive 
 
 ## Update and recovery
 
+To upgrade from 0.6.0 or earlier, close GreyTab and use the one-line installer above. The **Webhook** tab and the built-in updater are available starting in 0.7.0.
+
+Start GreyTab from the installed command or desktop entry. In **Settings → Application updates**, select **Check for updates** and then **Download update** when a newer release appears. Close all GreyTab and Chromium windows and open GreyTab again. The launcher verifies and applies the update before starting the browser. If installation fails, it restores the previous application files and runtime and records details in `.runtime/release-update/install.log`. The updater checks the public GitHub API and falls back to the HTTPS release redirect when the API is unavailable or rate-limited.
+
 Close GreyTab, back up `data/`, `logs/`, `profile/` and any `.pbx` projects, then run the one-liner again. Application files and locked runtime packages are refreshed in place. The installer reuses a browser or uv binary when both its version and architecture match. For a move to a different architecture, install GreyTab on the destination and import exported `.pbx` projects.
+
+On a VM that still appears to run an older version, compare `~/.local/bin/greytab --version` with `command -v greytab`. If the absolute command reports the requested version, close the old windows and start from that command or the regenerated application-menu entry. For a custom install, pass the same `GREYTAB_INSTALL_DIR`, `GREYTAB_BIN_DIR` and `XDG_DATA_HOME` used originally.
 
 For an existing source checkout, update the checkout and run `bash install.sh`. An installation from an older `/usr/local/bin/greytab` wrapper may still take precedence in PATH: inspect `command -v greytab` and use `~/.local/bin/greytab` or update your PATH.
 

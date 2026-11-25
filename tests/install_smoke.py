@@ -24,11 +24,11 @@ def api(path, payload=None):
 
 
 @contextmanager
-def running_backend(wrapper, env, log_path, version):
+def running_backend(wrapper, env, log_path, version, startup_timeout=10):
     with log_path.open("w") as log:
         process = subprocess.Popen([wrapper, "--backend-only"], env=env, stdout=log, stderr=subprocess.STDOUT)
         try:
-            for _ in range(100):
+            for _ in range(startup_timeout * 10):
                 if process.poll() is not None:
                     raise RuntimeError(f"Installed backend exited early. See {log_path}")
                 try:
@@ -77,7 +77,33 @@ py_compile.compile(sys.argv[1], cfile=cache_from_source(sys.argv[2]), doraise=Tr
     return previous_version
 
 
-def verify_install(app, output):
+def check_staged_update(app, output, archive, wrapper, env, version, previous_version, session_id):
+    source = app / "core/__init__.py"
+    source.write_text(source.read_text().replace(f'__version__ = "{version}"', f'__version__ = "{previous_version}"'))
+    assert subprocess.check_output([wrapper, "--version"], env=env, text=True).strip() == previous_version
+    marker = app / "profile/updater-fixture.txt"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("keep this profile")
+    subprocess.run([app / ".venv/bin/python", "-c", """
+import hashlib
+from pathlib import Path
+import sys
+from core.updater import Updater
+from scripts.release_update import architecture
+
+archive = Path(sys.argv[1]).read_bytes()
+Updater(Path.cwd()).stage_archive(sys.argv[2], hashlib.sha256(archive).hexdigest(), archive, architecture())
+""", str(archive), f"v{version}"], cwd=app, env=env, check=True)
+    with running_backend(wrapper, env, output / "backend-update.log", version, startup_timeout=45):
+        update = api("/api/updates")
+        assert update["enabled"] and update["phase"] == "idle", update
+        assert api(f"/api/sessions/{session_id}")["name"] == "Packaged install QA"
+    assert marker.read_text() == "keep this profile"
+    assert not (app / ".runtime/release-update/pending.json").exists()
+    print(f"PASS GreyTab {version} staged update through the installed launcher with profile and session preservation")
+
+
+def verify_install(app, output, archive=None):
     output.mkdir(parents=True, exist_ok=True)
     bin_dir = app.parent / "command bin"
     data_dir = app.parent / "desktop files"
@@ -113,11 +139,14 @@ def verify_install(app, output):
     with running_backend(wrapper, env, output / "backend-reinstall.log", version):
         assert api(f"/api/sessions/{session_id}")["name"] == "Packaged install QA"
     print(f"PASS GreyTab {version} install, backend lifecycle, session preservation and stale bytecode removal")
+    if archive:
+        check_staged_update(app, output, archive, wrapper, env, version, previous_version, session_id)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=Path, help="Disposable directory containing the extracted release")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--archive", type=Path, help="Verified native release archive for the staged-update check")
     args = parser.parse_args()
-    verify_install(args.app.resolve(), args.output.resolve())
+    verify_install(args.app.resolve(), args.output.resolve(), args.archive.resolve() if args.archive else None)

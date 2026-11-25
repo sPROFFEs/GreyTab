@@ -488,7 +488,10 @@ function activateTab(tabId) {
         if (typeof loadBookmarklets === 'function') loadBookmarklets();
         if (typeof updateBookmarkletTargetInfo === 'function') updateBookmarkletTargetInfo();
     }
-    if (tabId === 'settings') loadSettings();
+    if (tabId === 'settings') {
+        loadSettings();
+        if (typeof refreshUpdater === 'function') refreshUpdater();
+    }
 }
 
 function updateNavigationOrientation() {

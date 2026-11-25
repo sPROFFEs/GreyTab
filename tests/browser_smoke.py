@@ -219,7 +219,7 @@ async def check_history_workspace(page, target_page, api, output, ok):
 async def capture_views(page, output):
     for width, height in [(320, 850), (380, 850), (768, 1000), (1440, 1000)]:
         await page.set_viewport_size({'width': width, 'height': height})
-        for name in ['proxy', 'repeater', 'intruder', 'tools', 'decoder', 'bookmarklets', 'requests', 'autoscanner', 'utilities', 'extensions', 'settings']:
+        for name in ['proxy', 'repeater', 'intruder', 'tools', 'decoder', 'bookmarklets', 'requests', 'autoscanner', 'webhook', 'utilities', 'extensions', 'settings']:
             await page.click(f'.tab[data-tab="{name}"]')
             await page.evaluate("document.querySelector('.tab-content--active').scrollTop = 0")
             await page.screenshot(path=output / f'{name}-{width}.png', animations='disabled')
@@ -427,7 +427,17 @@ async def check_extension_views(page, output, ok):
 
 
 async def check_webhook_inbox(page, output, ok):
+    tab = page.get_by_role('tab', name='Webhook', exact=True)
+    await page.set_viewport_size({'width': 320, 'height': 1000})
+    await page.click('.tab[data-tab="proxy"]')
+    bounds = await tab.bounding_box()
+    assert bounds['x'] >= 0 and bounds['x'] + bounds['width'] <= 321, bounds
+    await tab.click()
+    assert await page.get_by_role('tabpanel', name='Webhook', exact=True).is_visible()
     await page.click('.tab[data-tab="utilities"]')
+    await page.get_by_role('button', name='Open Webhook.site inbox').click()
+    assert await tab.get_attribute('aria-selected') == 'true'
+    await page.set_viewport_size({'width': 1440, 'height': 950})
     await page.fill('#webhook-inbox-id', f'https://webhook.site/#!/view/{INBOX}')
     await page.fill('#webhook-inbox-name', 'Orders')
     await page.click('#webhook-inbox-save')
@@ -438,7 +448,7 @@ async def check_webhook_inbox(page, output, ok):
     await page.locator(f'#webhook-inbox-saved option[value="{SECOND_INBOX}"]').wait_for(state='attached')
     await page.reload()
     await page.wait_for_selector('#app-container', state='visible')
-    await page.click('.tab[data-tab="utilities"]')
+    await tab.click()
     await page.locator(f'#webhook-inbox-saved option[value="{SECOND_INBOX}"]').wait_for(state='attached')
     await page.select_option('#webhook-inbox-saved', INBOX)
     assert await page.locator('#webhook-inbox-name').input_value() == 'Orders'
@@ -471,7 +481,23 @@ async def check_webhook_inbox(page, output, ok):
     await page.get_by_role('button', name='Clear', exact=True).click()
     assert await response.is_hidden()
     assert await page.locator('#webhook-inbox-id').input_value() == ''
-    ok('Free Webhook.site inbox saves, switches and forgets IDs and displays deliveries and default responses as text')
+    ok('Webhook tab is visible at 320 px and saves, switches and forgets inbox IDs and displays previews as text')
+
+
+async def check_updater(page, output, ok):
+    await page.click('.tab[data-tab="settings"]')
+    await page.get_by_role('button', name='Check for updates').click()
+    await wait(page, 'document.querySelector("#updates-status").textContent.includes("via GitHub HTTPS")')
+    await page.set_viewport_size({'width': 320, 'height': 950})
+    await page.locator('#updates-title').scroll_into_view_if_needed()
+    await page.screenshot(path=output / 'application-updates-available-320.png', animations='disabled')
+    await page.get_by_role('button', name='Download update').click()
+    await wait(page, 'document.querySelector("#updates-status").textContent.includes("is ready")')
+    for width in (320, 380, 1440):
+        await page.set_viewport_size({'width': width, 'height': 950})
+        await page.locator('#updates-title').scroll_into_view_if_needed()
+        await page.screenshot(path=output / f'application-updates-{width}.png', animations='disabled')
+    ok('Application updater falls back to GitHub HTTPS on rate limits and stages the verified release')
 
 
 async def run(chrome, output, inspection_only=False):
@@ -487,10 +513,12 @@ async def run(chrome, output, inspection_only=False):
     backend_args = ['-m', 'uvicorn', 'core.api:app', '--host', '127.0.0.1', '--port', '8443']
     if inspection_only:
         backend_args = ['-c', 'import uvicorn, httpx; from functools import partial; '
-                        'from core.api import app; from core import webhook_site; '
+                        'from core.api import app; from core import webhook_site; from core.updater import Updater; '
+                        'import os; from tests.test_updater import github_update_fixture; '
                         'from tests.test_webhook_site import webhook_provider_fixture; '
                         'webhook_site.read_deliveries = partial(webhook_site.read_deliveries, transport=httpx.MockTransport(webhook_provider_fixture)); '
                         'webhook_site.read_default_response = partial(webhook_site.read_default_response, transport=httpx.MockTransport(webhook_provider_fixture)); '
+                        'app.state.updater = Updater(os.environ["GREYTAB_RUNTIME_DIR"], transport=httpx.MockTransport(github_update_fixture)); '
                         'app.state.open_workspace_on_launch = True; '
                         'uvicorn.run(app, host="127.0.0.1", port=8443)']
     backend = subprocess.Popen([sys.executable, *backend_args], cwd=ROOT, env=env, stdout=log, stderr=log, start_new_session=True)
@@ -549,9 +577,10 @@ async def run(chrome, output, inspection_only=False):
                 await check_history_workspace(page, target_page, api, output, ok)
                 await check_extension_views(page, output, ok)
                 await check_webhook_inbox(page, output, ok)
+                await check_updater(page, output, ok)
                 await capture_views(page, output)
                 await check_expanded_settings(page, output)
-                ok('All 11 views at 320/380/768/1440 pixels')
+                ok('All 12 views at 320/380/768/1440 pixels')
                 ok('Expanded settings and dialog at 320/380/1440 pixels')
                 await check_workspace_drafts(context, page, output, ok)
                 assert not errors, errors
@@ -752,7 +781,7 @@ async def run(chrome, output, inspection_only=False):
             await page.locator('.rule-row [data-f="name"]').last.fill('QA rule')
             await page.locator('.rule-row [data-f="name"]').last.blur()
             await capture_views(page, output)
-            ok('All 11 views at 320/380/768/1440 pixels')
+            ok('All 12 views at 320/380/768/1440 pixels')
             assert not errors, errors
             ok('No uncaught extension JavaScript errors')
             await context.close()

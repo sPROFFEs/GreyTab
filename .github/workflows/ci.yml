@@ -63,7 +63,8 @@ jobs:
           else
             tar -xzf "dist/greytab-linux-$GREYTAB_TEST_ARCH.tar.gz" -C "$app_dir"
           fi
-          .venv/bin/python tests/install_smoke.py "$app_dir" --output tests/_runtime/install
+          .venv/bin/python tests/install_smoke.py "$app_dir" --output tests/_runtime/install \
+            --archive "dist/greytab-linux-$GREYTAB_TEST_ARCH.tar.gz"
           echo "GREYTAB_TEST_APP=$app_dir" >> "$GITHUB_ENV"
       - name: Real extension workflows and screenshots
         run: .venv/bin/python "$GREYTAB_TEST_APP/tests/browser_smoke.py" --output tests/_runtime/browser

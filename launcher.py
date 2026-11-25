@@ -13,7 +13,7 @@ import sys
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 
 from core import __version__
-from core.config import (CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR, LOGS_DIR,
+from core.config import (CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR, LOGS_DIR, PROJECT_ROOT,
                          CA_CERT_DIR, ensure_dirs, get_config)
 from rich.console import Console
 
@@ -75,6 +75,10 @@ async def main(no_browser=False, open_workspace=True):
         check_installation()
     check_ports(config)
     from core.api import app
+    if (os.environ.get("GREYTAB_MANAGED_LAUNCH") == "1" and not (PROJECT_ROOT / ".git").exists()
+            and (PROJECT_ROOT / ".runtime/install-layout.json").is_file()):
+        from core.updater import Updater
+        app.state.updater = Updater(PROJECT_ROOT)
     app.state.open_workspace_on_launch = not no_browser and open_workspace
     console.print(f"[bold]GreyTab {__version__}[/bold] · Linux · API {config.api.port} · Proxy {config.proxy.port}")
     server = uvicorn.Server(uvicorn.Config(app, host=config.api.host, port=config.api.port, log_level="warning"))

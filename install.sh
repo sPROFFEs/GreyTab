@@ -42,14 +42,30 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
 # shlex.quote preserves spaces, quotes and dollar signs in installation paths.
 python3 - "$PROJECT_ROOT" "$BIN_DIR/greytab" "$DESKTOP_DIR/greytab.desktop" <<'PY'
-import pathlib, shlex, sys
+import json, os, pathlib, shlex, sys, tempfile
 root, wrapper, desktop = map(pathlib.Path, sys.argv[1:])
-python = root / '.venv/bin/python'
-wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(python)) + ' ' + shlex.quote(str(root / 'launcher.py')) + ' "$@"\n')
-wrapper.chmod(0o755)
+wrapper = wrapper.parent.resolve() / wrapper.name
+desktop = desktop.parent.resolve() / desktop.name
+
+def install_file(path, content, mode):
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
+        temporary = pathlib.Path(stream.name)
+        try:
+            stream.write(content)
+            stream.flush()
+            temporary.chmod(mode)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+launcher = root / 'scripts/release_update.py'
+bootstrap_python = str(pathlib.Path(getattr(sys, '_base_executable', sys.executable)).resolve())
+install_file(wrapper, '#!/bin/sh\nexec ' + shlex.join([bootstrap_python, str(launcher)]) + ' "$@"\n', 0o755)
 def quoted(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%') + '"'
-desktop.write_text('[Desktop Entry]\nType=Application\nName=GreyTab\nComment=Web auditing workspace\nExec=' + quoted(wrapper) + ' --desktop\nIcon=' + str(root / 'extension/icons/icon128.png') + '\nTerminal=false\nCategories=Development;Security;\n')
+install_file(desktop, '[Desktop Entry]\nType=Application\nName=GreyTab\nComment=Web auditing workspace\nExec=' + quoted(wrapper) + ' --desktop\nIcon=' + str(root / 'extension/icons/icon128.png') + '\nTerminal=false\nCategories=Development;Security;\n', 0o644)
+install_file(root / '.runtime/install-layout.json', json.dumps({'bin_dir': str(wrapper.parent), 'data_home': str(desktop.parent.parent)}), 0o600)
 PY
-printf '\nGreyTab installed. Launch: %s/greytab\n' "$BIN_DIR"
+INSTALLED_VERSION=$("$BIN_DIR/greytab" --version)
+printf '\nGreyTab %s installed. Launch: %s/greytab\n' "$INSTALLED_VERSION" "$BIN_DIR"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) printf 'Add the command to PATH: export PATH="%s:$PATH"\n' "$BIN_DIR";; esac

@@ -159,6 +159,12 @@
         </svg>
         <span class="tab__label">Repeater</span>
       </button>
+      <button class="tab" data-tab="webhook">
+        <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+          <path d="M4 12h11m-4-4 4 4-4 4M16 5h4v14h-4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="tab__label">Webhook</span>
+      </button>
       <button class="tab" data-tab="decoder">
         <svg class="tab__icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
           fill="none">
@@ -1144,11 +1150,8 @@
     </div>
 
 
-    <!-- ══════════════════════════════════════════ -->
-    <!-- SETTINGS TAB                              -->
-    <!-- ══════════════════════════════════════════ -->
-    <div class="tab-content" id="tab-utilities">
-      <div class="utility-grid">
+    <div class="tab-content" id="tab-webhook">
+      <div class="utility-grid webhook-workspace">
         <section class="utility-card" aria-labelledby="webhook-inbox-title">
           <h3 id="webhook-inbox-title">Webhook.site inbox</h3>
           <form class="webhook-inbox-form" id="webhook-inbox-form" autocomplete="off">
@@ -1171,12 +1174,23 @@
               <a class="btn btn--ghost btn--sm webhook-site-link" id="webhook-inbox-open" href="https://webhook.site/" target="_blank" rel="noopener noreferrer">Open Webhook.site</a>
             </div>
           </form>
+          <p class="text-muted webhook-inbox-status" id="webhook-inbox-management-status" role="status"></p>
           <p class="text-muted webhook-inbox-status" id="webhook-inbox-response-status" role="status"></p>
           <pre id="webhook-inbox-response" class="code-block" tabindex="0" aria-label="Default HTTP response" hidden></pre>
-          <p class="text-muted webhook-inbox-status" id="webhook-inbox-status" role="status"></p>
+        </section>
+        <section class="utility-card" aria-labelledby="webhook-deliveries-title">
+          <h3 id="webhook-deliveries-title">HTTP deliveries</h3>
+          <p class="text-muted webhook-inbox-status" id="webhook-inbox-status" role="status">Refresh an inbox to see its deliveries.</p>
           <div class="webhook-events" id="webhook-inbox-events" hidden></div>
           <pre id="webhook-inbox-detail" class="code-block" tabindex="0" aria-label="Selected HTTP delivery" hidden></pre>
         </section>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-utilities">
+      <div class="utility-shortcuts">
+        <button class="btn btn--ghost btn--sm" id="open-webhook-tab" type="button">Open Webhook.site inbox</button>
+      </div>
+      <div class="utility-grid">
         <section class="utility-card">
           <h3>Race tester</h3>
           <p class="settings-hint">Replay one request concurrently. Use a captured request to preserve its destination.</p>
@@ -1276,6 +1290,18 @@
     </div>
 
     <div class="tab-content" id="tab-settings">
+
+      <section class="section" aria-labelledby="updates-title" id="updates-section">
+        <div class="section__header"><h3 id="updates-title">Application updates</h3></div>
+        <div class="settings-group">
+          <div class="settings-inline">
+            <span class="text-muted" id="updates-version"></span>
+            <button class="btn btn--ghost btn--sm" id="updates-check" type="button" disabled>Check for updates</button>
+            <button class="btn btn--primary btn--sm" id="updates-prepare" type="button" hidden>Download update</button>
+          </div>
+          <p class="settings-note updater-status" id="updates-status" role="status"></p>
+        </div>
+      </section>
 
       <!-- Proxy Settings -->
       <div class="section">
@@ -1691,6 +1717,7 @@
   <script src="js/tools.js"></script>
   <script src="js/utilities.js"></script>
   <script src="js/webhook-inbox.js"></script>
+  <script src="js/updater.js"></script>
   <script src="js/init.js"></script>
 </body>
 
