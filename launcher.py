@@ -10,7 +10,7 @@ import signal
 import socket
 import subprocess
 import sys
-from pathlib import Path
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 
 from core import __version__
 from core.config import (CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR, LOGS_DIR,
@@ -18,6 +18,17 @@ from core.config import (CHROMIUM_BIN, EXTENSION_DIR, PROFILE_DIR, LOGS_DIR,
 from rich.console import Console
 
 console = Console()
+
+
+@contextmanager
+def desktop_logging(enabled):
+    if not enabled:
+        yield
+        return
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(LOGS_DIR / "launcher.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(descriptor, "a", buffering=1) as log, redirect_stdout(log), redirect_stderr(log):
+        yield
 
 
 def check_installation():
@@ -112,18 +123,24 @@ def run():
     parser = argparse.ArgumentParser(description="GreyTab web auditing suite (Linux)")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--check", action="store_true", help="Check browser and Python installation")
+    parser.add_argument("--desktop", action="store_true", help="Write launcher output to logs/launcher.log")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--backend-only", action="store_true", help="Start API and proxy without opening Chromium")
     mode.add_argument("--side-panel", action="store_true", help="Start Chromium without opening the GreyTab workspace")
     args = parser.parse_args()
     try:
-        if args.check:
-            check_installation()
-        else:
-            asyncio.run(main(args.backend_only, open_workspace=not args.side_panel))
+        with desktop_logging(args.desktop):
+            try:
+                if args.check:
+                    check_installation()
+                else:
+                    asyncio.run(main(args.backend_only, open_workspace=not args.side_panel))
+            except (RuntimeError, OSError) as e:
+                console.print(f"[red]{e}[/red]")
+                sys.exit(1)
     except KeyboardInterrupt:
         pass
-    except (RuntimeError, OSError) as e:
+    except OSError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
 

@@ -32,6 +32,7 @@ from core.ai_agent import (
 )
 from core import extras as gx
 from core.burp_extensions import MAX_ARCHIVE_BYTES, inspect_burp_archive
+from core import webhook_site
 
 
 # ── Globals ─────────────────────────────────────────────────────
@@ -376,6 +377,9 @@ async def protect_local_api(request: Request, call_next):
 class SessionCreate(BaseModel):
     name: str
     target_scope: str = ""
+
+class WebhookInboxRequest(BaseModel):
+    inbox: str
 
 class ToolRunRequest(BaseModel):
     tool_name: str
@@ -1455,6 +1459,27 @@ async def export_traffic_har(session_id: Optional[str] = None, limit: int = 5000
         yield ']}}'
 
     return StreamingResponse(stream(), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+
+# ──────────────────────────────────────────────────────────────────
+# Webhook.site inbox
+# ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/webhook-inbox/refresh")
+async def refresh_webhook_inbox(req: WebhookInboxRequest):
+    try:
+        events = await webhook_site.read_deliveries(req.inbox)
+    except webhook_site.WebhookSiteError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    return {"events": events}
+
+
+@app.post("/api/webhook-inbox/response")
+async def webhook_inbox_response(req: WebhookInboxRequest):
+    try:
+        return await webhook_site.read_default_response(req.inbox)
+    except webhook_site.WebhookSiteError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
 
 
 # ──────────────────────────────────────────────────────────────────

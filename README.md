@@ -4,15 +4,17 @@
   <p>A Linux browser workspace for web security testing.</p>
 </div>
 
-GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.5.1** supports **Linux x86_64 and ARM64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18** for the host architecture.
+GreyTab combines an intercepting HTTP/HTTPS proxy, request replay, fuzzing, scanning and external tools in a Chromium extension. Version **0.6.0** supports **Linux x86_64 and ARM64** and installs a dedicated **Chromium 156.0.8078.79** and **Python 3.13.18** for the host architecture.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh | bash
 ```
 
 Launch **GreyTab** from your application menu, or run `~/.local/bin/greytab`. The workspace opens in a separate window alongside Chromium. Create or resume a session there, then choose **Browser** to return to browsing. Use `greytab --side-panel` to open GreyTab from the browser toolbar on demand. `greytab --check` checks the installation and `greytab --version` prints the version.
+
+The desktop entry starts GreyTab without opening a terminal and writes launcher output to `logs/launcher.log`.
 
 The installer selects the matching release archive and verifies its SHA-256. It installs portable Chromium, uv, the pinned Python runtime and locked dependencies under `~/.local/share/greytab`, with a command in `~/.local/bin`. You need a graphical Linux session, glibc and Chromium's system libraries, Python 3.9+ for bootstrapping, `curl`, `tar` and `sha256sum`. See [installation and updates](docs/INSTALL.md) for supported architectures, distribution packages and troubleshooting.
 
@@ -25,7 +27,7 @@ The installer selects the matching release archive and verifies its SHA-256. It 
 | Repeater | Independent tabs with preserved destinations, editable raw HTTP, redirect control, static response preview, consecutive-response diff and optional AI explanation. |
 | Intruder | Sniper, Battering Ram, Pitchfork and Cluster Bomb; lists, numeric ranges and wordlists; concurrency control and grep extraction. |
 | AutoScanner | Crawl or test a captured request; XSS, SQLi, traversal, LFI, redirects, SSTI, command injection, CRLF, SSRF, CORS and optional OAST; attempts, evidence and findings. |
-| Utilities | Concurrent request races, captured WebSocket frames, saved login macros and GraphQL introspection. |
+| Utilities | Concurrent request races, captured WebSocket frames, saved login macros and GraphQL introspection. Save free Webhook.site inboxes locally and read their HTTP deliveries and default responses. |
 | Decoder | Base64, URL, hex, HTML entities, Unicode, hashes, JWT decoding and HMAC signing. |
 | Tools | Run installed tools or custom commands, upload wordlists, inspect output in a separate terminal and cancel processes. |
 | Bookmarklets | Page inspection helpers including a reversible Smart Reveal, OSINT launchers and your own snippets. |
@@ -87,7 +89,7 @@ The browser suite loads the actual extension in the pinned Chromium and exercise
 - [Testing and release checks](docs/TESTING.md)
 - [Scanner lab regression](regression/README.md)
 - [Release procedure](docs/RELEASE.md)
-- [0.5.1 QA results and limitations](docs/QA-0.5.1.md)
+- [0.6.0 QA results and limitations](docs/QA-0.6.0.md)
 - [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 GreyTab covers several everyday Burp-style workflows. It does not claim Burp Suite feature parity or equivalent scanner accuracy; see the documented limits and test evidence.

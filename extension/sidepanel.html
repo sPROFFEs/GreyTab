@@ -1149,6 +1149,34 @@
     <!-- ══════════════════════════════════════════ -->
     <div class="tab-content" id="tab-utilities">
       <div class="utility-grid">
+        <section class="utility-card" aria-labelledby="webhook-inbox-title">
+          <h3 id="webhook-inbox-title">Webhook.site inbox</h3>
+          <form class="webhook-inbox-form" id="webhook-inbox-form" autocomplete="off">
+            <label for="webhook-inbox-saved">Saved inboxes</label>
+            <div class="webhook-inbox-saved">
+              <select class="input" id="webhook-inbox-saved"><option value="">Choose a saved inbox</option></select>
+              <button class="btn btn--ghost btn--sm" id="webhook-inbox-forget" type="button" disabled>Forget</button>
+            </div>
+            <label for="webhook-inbox-id">Inbox URL or UUID</label>
+            <input class="input" id="webhook-inbox-id" placeholder="https://webhook.site/&lt;uuid&gt;" maxlength="100" spellcheck="false" required>
+            <label for="webhook-inbox-name">Inbox name (optional)</label>
+            <input class="input" id="webhook-inbox-name" maxlength="60">
+            <div class="utility-actions">
+              <button class="btn btn--primary btn--sm" id="webhook-inbox-refresh" type="submit">Refresh inbox</button>
+              <button class="btn btn--ghost btn--sm" id="webhook-inbox-save" type="button">Save inbox</button>
+              <button class="btn btn--ghost btn--sm" type="reset">Clear</button>
+            </div>
+            <div class="utility-actions">
+              <button class="btn btn--ghost btn--sm" id="webhook-inbox-view-response" type="button" aria-controls="webhook-inbox-response">View default response</button>
+              <a class="btn btn--ghost btn--sm webhook-site-link" id="webhook-inbox-open" href="https://webhook.site/" target="_blank" rel="noopener noreferrer">Open Webhook.site</a>
+            </div>
+          </form>
+          <p class="text-muted webhook-inbox-status" id="webhook-inbox-response-status" role="status"></p>
+          <pre id="webhook-inbox-response" class="code-block" tabindex="0" aria-label="Default HTTP response" hidden></pre>
+          <p class="text-muted webhook-inbox-status" id="webhook-inbox-status" role="status"></p>
+          <div class="webhook-events" id="webhook-inbox-events" hidden></div>
+          <pre id="webhook-inbox-detail" class="code-block" tabindex="0" aria-label="Selected HTTP delivery" hidden></pre>
+        </section>
         <section class="utility-card">
           <h3>Race tester</h3>
           <p class="settings-hint">Replay one request concurrently. Use a captured request to preserve its destination.</p>
@@ -1662,6 +1690,7 @@
   <script src="js/bookmarklets.js"></script>
   <script src="js/tools.js"></script>
   <script src="js/utilities.js"></script>
+  <script src="js/webhook-inbox.js"></script>
   <script src="js/init.js"></script>
 </body>
 

@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tests.test_burp_extensions import sample_bapp_archive
+from tests.test_webhook_site import INBOX, SECOND_INBOX
 
 
 class Target(BaseHTTPRequestHandler):
@@ -425,6 +426,54 @@ async def check_extension_views(page, output, ok):
     ok('Extension catalog, BApp report, native pack lifecycle and HTTP exchange clipboard export')
 
 
+async def check_webhook_inbox(page, output, ok):
+    await page.click('.tab[data-tab="utilities"]')
+    await page.fill('#webhook-inbox-id', f'https://webhook.site/#!/view/{INBOX}')
+    await page.fill('#webhook-inbox-name', 'Orders')
+    await page.click('#webhook-inbox-save')
+    await page.locator(f'#webhook-inbox-saved option[value="{INBOX}"]').wait_for(state='attached')
+    await page.fill('#webhook-inbox-id', SECOND_INBOX)
+    await page.fill('#webhook-inbox-name', 'Notifications')
+    await page.click('#webhook-inbox-save')
+    await page.locator(f'#webhook-inbox-saved option[value="{SECOND_INBOX}"]').wait_for(state='attached')
+    await page.reload()
+    await page.wait_for_selector('#app-container', state='visible')
+    await page.click('.tab[data-tab="utilities"]')
+    await page.locator(f'#webhook-inbox-saved option[value="{SECOND_INBOX}"]').wait_for(state='attached')
+    await page.select_option('#webhook-inbox-saved', INBOX)
+    assert await page.locator('#webhook-inbox-name').input_value() == 'Orders'
+    assert await page.locator('#webhook-inbox-open').get_attribute('href') == f'https://webhook.site/#!/view/{INBOX}'
+    await page.click('#webhook-inbox-refresh')
+    await page.locator('#webhook-inbox-events button').click()
+    assert 'x-fixture: second' in await page.inner_text('#webhook-inbox-detail')
+    assert '<strong>Delivery text</strong>' in await page.inner_text('#webhook-inbox-detail')
+    assert await page.locator('#webhook-inbox-detail strong').count() == 0
+    await page.click('#webhook-inbox-view-response')
+    response = page.locator('#webhook-inbox-response')
+    await response.wait_for(state='visible')
+    assert 'Status: 202' in await response.inner_text()
+    assert '<strong>Accepted</strong>' in await response.inner_text()
+    assert await response.locator('strong').count() == 0
+    assert '1 recent HTTP delivery.' in await page.inner_text('#webhook-inbox-status')
+    for width in (320, 380, 1440):
+        await page.set_viewport_size({'width': width, 'height': 950})
+        await page.locator('#webhook-inbox-title').scroll_into_view_if_needed()
+        await page.screenshot(path=output / f'webhook-inbox-{width}.png', animations='disabled')
+    await page.select_option('#webhook-inbox-saved', SECOND_INBOX)
+    assert await response.is_hidden()
+    assert await page.locator('#webhook-inbox-detail').is_hidden()
+    await page.click('#webhook-inbox-view-response')
+    await response.wait_for(state='visible')
+    assert 'Status: 204' in await response.inner_text()
+    await page.click('#webhook-inbox-forget')
+    await page.locator(f'#webhook-inbox-saved option[value="{SECOND_INBOX}"]').wait_for(state='detached')
+    assert await page.locator(f'#webhook-inbox-saved option[value="{INBOX}"]').count() == 1
+    await page.get_by_role('button', name='Clear', exact=True).click()
+    assert await response.is_hidden()
+    assert await page.locator('#webhook-inbox-id').input_value() == ''
+    ok('Free Webhook.site inbox saves, switches and forgets IDs and displays deliveries and default responses as text')
+
+
 async def run(chrome, output, inspection_only=False):
     output.mkdir(parents=True, exist_ok=True)
     errors, checks = [], []
@@ -437,7 +486,11 @@ async def run(chrome, output, inspection_only=False):
     log = (output / 'backend.log').open('w')
     backend_args = ['-m', 'uvicorn', 'core.api:app', '--host', '127.0.0.1', '--port', '8443']
     if inspection_only:
-        backend_args = ['-c', 'import uvicorn; from core.api import app; '
+        backend_args = ['-c', 'import uvicorn, httpx; from functools import partial; '
+                        'from core.api import app; from core import webhook_site; '
+                        'from tests.test_webhook_site import webhook_provider_fixture; '
+                        'webhook_site.read_deliveries = partial(webhook_site.read_deliveries, transport=httpx.MockTransport(webhook_provider_fixture)); '
+                        'webhook_site.read_default_response = partial(webhook_site.read_default_response, transport=httpx.MockTransport(webhook_provider_fixture)); '
                         'app.state.open_workspace_on_launch = True; '
                         'uvicorn.run(app, host="127.0.0.1", port=8443)']
     backend = subprocess.Popen([sys.executable, *backend_args], cwd=ROOT, env=env, stdout=log, stderr=log, start_new_session=True)
@@ -495,6 +548,7 @@ async def run(chrome, output, inspection_only=False):
             if inspection_only:
                 await check_history_workspace(page, target_page, api, output, ok)
                 await check_extension_views(page, output, ok)
+                await check_webhook_inbox(page, output, ok)
                 await capture_views(page, output)
                 await check_expanded_settings(page, output)
                 ok('All 11 views at 320/380/768/1440 pixels')

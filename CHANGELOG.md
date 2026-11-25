@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 — 2026-11-25
+
+- Start from the Linux application menu without a terminal window and write launcher output to `logs/launcher.log`.
+- Save and switch between free Webhook.site inboxes in Utilities. Read HTTP deliveries and default responses, and open the selected inbox in Webhook.site to edit its settings.
+
 ## 0.5.1 — 2026-11-25
 
 - Invalidate cached Python bytecode during installation so in-place upgrades load the new application version and code.

@@ -3188,6 +3188,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .utility-card h3 { margin: 0 0 8px; font-size: 14px; }
 .utility-card textarea { width: 100%; min-height: 150px; font: 12px/1.5 var(--font-mono); resize: vertical; }
 .utility-card pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--font-mono); }
+.webhook-inbox-form { display: grid; gap: 6px; margin-top: 12px; }
+.webhook-inbox-form label { font-size: 12px; color: var(--text-muted); }
+.webhook-inbox-form input, .webhook-inbox-form select { min-width: 0; width: 100%; }
+.webhook-inbox-saved { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.webhook-inbox-form .utility-actions { margin: 2px 0; }
+.webhook-inbox-form .btn:disabled { cursor: default; }
+.webhook-site-link { text-decoration: none; }
+.webhook-events { display: grid; gap: 6px; max-height: 240px; overflow-y: auto; }
+.webhook-events[hidden], #webhook-inbox-detail[hidden], #webhook-inbox-response[hidden], .webhook-inbox-status:empty { display: none; }
+#webhook-inbox-response { margin-top: 8px; }
+#webhook-inbox-detail { margin-top: 6px; }
+.webhook-events .ws-frame[aria-pressed="true"] { border-color: var(--accent); }
 .utility-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
 .utility-status { color: var(--text-muted); overflow-wrap: anywhere; }
 #ws-frames { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }

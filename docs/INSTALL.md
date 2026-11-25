@@ -1,17 +1,17 @@
 # Installing GreyTab on Linux
 
-Release 0.5.1 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
+Release 0.6.0 supports Linux x86_64 and ARM64 (`aarch64`) with glibc and a graphical desktop. The release workflow validates both architectures on Ubuntu 24.04.
 
 ## One command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh | bash
 ```
 
 The versioned bootstrap installs the latest published release by default. To reproduce this release exactly:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh | GREYTAB_VERSION=v0.5.1 bash
+curl -fsSL https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh | GREYTAB_VERSION=v0.6.0 bash
 ```
 
 The script needs `curl`, `tar`, `sha256sum` and Python 3.9+ on the host. It selects the release archive and checksum using `uname -m`. `install.sh` then verifies and installs uv 0.13.9 and ungoogled-chromium 156.0.8078.79-1 from the matching target in `runtime-lock.json`. It installs Python 3.13.18 and the dependencies in `requirements.lock` for the same architecture.
@@ -33,7 +33,7 @@ The installer does not require sudo. A minimal Linux installation may need syste
 ## Inspect before installing
 
 ```bash
-curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.5.1/quickstart.sh
+curl -fsSL -o /tmp/greytab-install.sh https://raw.githubusercontent.com/sPROFFEs/GreyTab/v0.6.0/quickstart.sh
 less /tmp/greytab-install.sh
 bash /tmp/greytab-install.sh
 ```
@@ -42,7 +42,7 @@ To choose another destination, prefix `bash` with `GREYTAB_INSTALL_DIR="/path/to
 
 ## Manual installation
 
-Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.5.1).
+Download the archive and its checksum file from the [release](https://github.com/sPROFFEs/GreyTab/releases/tag/v0.6.0).
 
 | Linux architecture | Archive | Checksum command |
 | --- | --- | --- |
@@ -54,6 +54,8 @@ Extract the verified archive into a dedicated directory and run `bash /path/to/G
 Developers can clone the repository and run `bash install.sh`. Custom Chromium builds can be selected at launch with `GREYTAB_CHROME_BIN=/absolute/path/to/chrome`; the release's validation covers the pinned build.
 
 GreyTab opens the workspace alongside Chromium. Run `greytab --side-panel` to start Chromium and open GreyTab from its toolbar on demand. The toolbar panel's **Open workspace** button opens or focuses the desktop window.
+
+Installing or upgrading regenerates the desktop entry for a terminal-free launch. Open GreyTab from the application menu to use it. Desktop startup output goes to `logs/launcher.log`. Running `greytab` in a shell displays output there.
 
 The [Extensions view](EXTENSIONS.md) uses the same Linux installer. The archive inspector reads Java class files using Python's standard library.
 
@@ -67,7 +69,7 @@ For an existing source checkout, update the checkout and run `bash install.sh`. 
 
 - `greytab --check`: executable, dependency and Chromium version check.
 - Port conflict: close the other GreyTab instance. API uses loopback port 8443; the proxy defaults to 8080. Change the proxy port in Settings and restart the whole app to apply it.
-- Browser startup: inspect `logs/chromium.log`; install missing libraries reported by `ldd browser/chrome`.
+- Inspect `logs/chromium.log` and `logs/launcher.log` if GreyTab fails to open from the application menu. Use `ldd browser/chrome` to identify missing libraries.
 - Extension unavailable: check `chrome://extensions`, enable the extension toolbar icon, or load `extension/` manually for development.
 - HTTPS: the launcher trusts the GreyTab proxy's public key for this browser instance. It does not install a system certificate or disable the browser sandbox. Delete neither `certs/` nor the CA while a session is running.
 - Headless development: `greytab --backend-only` starts the API/proxy without Chromium. `GREYTAB_RUNTIME_DIR=/tmp/greytab-dev` isolates generated state.

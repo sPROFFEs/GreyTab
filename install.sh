@@ -49,7 +49,7 @@ wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(python)) + ' ' + shlex.q
 wrapper.chmod(0o755)
 def quoted(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%') + '"'
-desktop.write_text('[Desktop Entry]\nType=Application\nName=GreyTab\nComment=Web auditing workspace\nExec=' + quoted(wrapper) + '\nIcon=' + str(root / 'extension/icons/icon128.png') + '\nTerminal=true\nCategories=Development;Security;\n')
+desktop.write_text('[Desktop Entry]\nType=Application\nName=GreyTab\nComment=Web auditing workspace\nExec=' + quoted(wrapper) + ' --desktop\nIcon=' + str(root / 'extension/icons/icon128.png') + '\nTerminal=false\nCategories=Development;Security;\n')
 PY
 printf '\nGreyTab installed. Launch: %s/greytab\n' "$BIN_DIR"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) printf 'Add the command to PATH: export PATH="%s:$PATH"\n' "$BIN_DIR";; esac

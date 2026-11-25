@@ -96,7 +96,12 @@ def verify_install(app, output):
     assert f"Chromium {chromium_version}" in browser_check
     print(browser_check, end="")
     assert subprocess.check_output([app / ".venv/bin/python", "--version"], text=True).strip() == f"Python {runtime['python']}"
-    assert (data_dir / "applications/greytab.desktop").is_file()
+    desktop_entry = (data_dir / "applications/greytab.desktop").read_text().splitlines()
+    assert "Terminal=false" in desktop_entry
+    assert any(line.startswith("Exec=") and line.endswith(" --desktop") for line in desktop_entry)
+    desktop_check = subprocess.check_output([wrapper, "--desktop", "--check"], env=env, text=True)
+    assert not desktop_check
+    assert f"Chromium {chromium_version}" in (app / "logs/launcher.log").read_text()
 
     with running_backend(wrapper, env, output / "backend-first.log", version):
         session_id = api("/api/sessions", {"name": "Packaged install QA"})["id"]

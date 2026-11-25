@@ -38,6 +38,8 @@ For focused desktop startup, History, inspector, Repeater editor and responsive 
 
 This run opens the desktop workspace automatically in a clean Chromium profile. It checks window reuse, browser focus, keyboard navigation and separate drafts. It captures all eleven views at four widths plus the populated inspector, expanded settings and a dialog. It also checks pane resizing, History pagination, complete HAR export, a static BApp report, catalog search and filters, pack installation and removal, and copying a recorded exchange from History to the clipboard.
 
+The Webhook.site inbox is tested with a mock provider connected to the local API. The browser run checks the free flow without authentication, saved IDs across reloads, switching and forgetting inboxes, and plain-text previews of deliveries and configured responses. The install smoke test verifies the terminal-free desktop entry and the launcher log.
+
 ## Installation validation
 
 Build with `python3 scripts/build_release.py --output /tmp/greytab-dist` and verify `SHA256SUMS` and `SHA256SUMS.aarch64`. Extract the archive for the current architecture into a disposable directory with spaces in its name. Run `.venv/bin/python tests/install_smoke.py "/tmp/GreyTab Install" --output /tmp/greytab-install-qa` with ports 8080 and 8443 available. The script installs the package with isolated command and desktop paths. It checks versions, backend shutdown, persistence of a saved session and invalidation of stale bytecode after reinstalling.

@@ -13,7 +13,7 @@ A release is a tested source archive plus a pinned runtime manifest. Publish onl
 Example packaging and publication after all checks:
 
 ```bash
-VERSION=0.5.1
+VERSION=0.6.0
 TESTED_COMMIT=$(git rev-parse HEAD)
 python3 scripts/build_release.py --output dist
 (cd dist && sha256sum -c SHA256SUMS && sha256sum -c SHA256SUMS.aarch64)
